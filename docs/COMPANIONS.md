@@ -1,16 +1,16 @@
 # Companion build notes
 
-The checked-in wrappers reuse `web/`; no cloud service is required after installation. Desktop uses a loopback API proxy. Mobile uses Capacitor native HTTP to contact `http://192.168.4.1`, and native geolocation only after an operator chooses to attach it. Platform installation, signing and permission flows still require device verification.
+The checked-in wrappers reuse `web/`; no cloud service is required after installation. Desktop uses a loopback API proxy. Mobile uses Capacitor native HTTP to contact `http://192.168.4.1`, and native geolocation for automatic position updates when the radio has no fresh onboard fix. Location permission is requested when needed; denied access leaves messaging available. Platform installation, signing and permission flows still require device verification.
 
 ## Android
 
 After `npx cap add android`, configure the generated Android project to allow local cleartext HTTP and location access. The Capacitor config sets `server.cleartext: true`; verify the generated manifest/network policy permits `192.168.4.1` without enabling a remote debug server.
 
-Add `android.permission.ACCESS_COARSE_LOCATION` and `android.permission.ACCESS_FINE_LOCATION` to the manifest for optional location attachment. The app must work when location permission is denied. Native geolocation requests permission when invoked. Local-network permissions may also be required by the target Android SDK/device version; test the selected SDK before release.
+Add `android.permission.ACCESS_COARSE_LOCATION` and `android.permission.ACCESS_FINE_LOCATION` to the manifest for automatic positioning and optional form location attachment. The app must work when location permission is denied. Native geolocation requests permission when invoked. Local-network permissions may also be required by the target Android SDK/device version; test the selected SDK before release.
 
 ## iOS
 
-After `npx cap add ios`, add meaningful `NSLocationWhenInUseUsageDescription` and the plugin-required location usage descriptions to `Info.plist`, explaining optional incident coordinate attachment. Add `NSLocalNetworkUsageDescription`, explaining connection to the operator's radio hotspot. Configure ATS for local HTTP radio access; validate the smallest exception that works for the deployment's iOS versions. Do not configure a remote app-shell URL: the interface must remain bundled and open without the radio.
+After `npx cap add ios`, add meaningful `NSLocationWhenInUseUsageDescription` and the plugin-required location usage descriptions to `Info.plist`, explaining automatic incident position sharing and optional coordinate attachment to forms. Add `NSLocalNetworkUsageDescription`, explaining connection to the operator's radio hotspot. Configure ATS for local HTTP radio access; validate the smallest exception that works for the deployment's iOS versions. Do not configure a remote app-shell URL: the interface must remain bundled and open without the radio.
 
 ## Desktop
 

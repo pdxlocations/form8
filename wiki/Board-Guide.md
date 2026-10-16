@@ -14,7 +14,7 @@ These targets build the same Form8 Wi-Fi/web interface and radio protocol. **Com
 | `tlora-t3-s3-sx1276` | LILYGO T3-S3, 868/915 MHz SX1276 version | 4 MB | OLED | Yes |
 | `tbeam-bpf` | LILYGO T-Beam BPF, experimental VHF | 16 MB | None configured | None configured |
 
-The `tbeam-bpf` environment is an experimental VHF target. Its display, GPS, power-management hardware, and RF behavior remain unverified. It is included in the firmware bundle and marked experimental in the manifest.
+The `tbeam-bpf` environment is an experimental VHF target. Its onboard L76K GPS is supported (UART RX6/TX5, 9600 baud), with AXP2101 ALDO4 GPS power enabled at 3.3 V. GPS acquisition, power-management behavior, display, and RF operation still need physical verification. It is included in the firmware bundle and marked experimental in the manifest.
 
 **Match the target to the physical board and radio chip.** The T3-S3 also comes with SX1278, SX1280, and LR1121 chips; those variants are not covered by these targets. The 433 MHz and 2.4 GHz variants are not substitutes for the listed 868/915 MHz versions. The current default frequency is 919.500 MHz, with BW 500 kHz, SF9, and CR 4/8; select hardware appropriate for that frequency.
 

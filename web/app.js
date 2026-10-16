@@ -1,8 +1,11 @@
+import {createMapPanel} from './map.js';
+import {PositionClient,deviceLocation,locationPayload} from './position-client.js';
 import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
 const $ = selector => document.querySelector(selector);
 let status = null, offset = 0, total = 0, draftTimer, locationData = null, settingsLoaded = false, boundIncident = '';
 let messageNeighbors = {previous:null,next:null};
 let selectedForm = null, polling = null, settingsDirty = false, displayedRecord = '';
+let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;
 const form = $('#form8');
 const database = new Promise((resolve, reject) => {
   const req = indexedDB.open('form8-client', 2);
@@ -71,9 +74,13 @@ function feedback(message, error = false) { const e=$('#feedback');e.hidden=fals
 function run(fn) { return async event => { try { await fn(event); } catch(error) { feedback(error.message, true); } }; }
 function text(tag, value, className) { const el=document.createElement(tag);el.textContent=value;if(className)el.className=className;return el; }
 function button(label, fn, className='secondary') { const b=text('button',label,className);b.type='button';b.onclick=run(fn);return b; }
+const mapPanel=createMapPanel({onError:message=>feedback(message,true)});
+const positionClient=new PositionClient({post:payload=>api('position',payload),onStatus:message=>{$('#position-status').textContent=message;}});
+$('#retry-position').onclick=run(async()=>{await positionClient.retry();await poll();});
 function showTab(tab) {
   for(const e of document.querySelectorAll('main > .panel'))e.hidden=e.id!==tab;
   for(const b of document.querySelectorAll('nav button')){const selected=b.dataset.tab===tab;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));}
+  if(tab==='map')mapPanel.show();
   if(tab==='chat')run(loadChatMessages)();if(tab==='traffic')run(loadTraffic)();if(tab==='incidents')run(loadIncidents)();if(tab==='archive')run(loadArchives)();
 }
 for(const b of document.querySelectorAll('nav button'))b.onclick=()=>showTab(b.dataset.tab);
@@ -137,17 +144,15 @@ $('#phone-location').onclick=run(async()=>{
   const button=$('#phone-location'),label=button.textContent;
   button.disabled=true;button.textContent='Getting location…';
   try {
-    let position;
-    if(globalThis.Form8Native?.isNative())position=await Form8Native.getLocation({enableHighAccuracy:true,timeout:15000,maximumAge:0});
-    else {
-      if(!navigator.geolocation)throw new Error('Location is unavailable in this browser. Use the companion app or enter latitude and longitude manually.');
-      position=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(resolve,reject,{enableHighAccuracy:true,timeout:15000,maximumAge:0}));
+    let fix=status?.location;
+    if(!fix?.fresh){
+      const position=await deviceLocation();const payload=locationPayload(position);
+      fix={...payload,source:'phone',fresh:true};
+      if(status)await api('position',payload);
     }
-    const {latitude,longitude}=position.coords;
-    if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||Math.abs(latitude)>90||Math.abs(longitude)>180)throw new Error('No valid coordinates were returned. Try again or enter latitude and longitude manually.');
-    const captured=Date.now();locationData={source:'phone',capturedAt:new Date(captured).toISOString(),fixAgeMs:Math.max(0,captured-position.timestamp),accuracy:position.coords.accuracy};
-    form.elements.lat.value=latitude;form.elements.lon.value=longitude;counts();
-    await saveDraft();feedback('Latitude and longitude filled from this device’s location.');
+    const captured=Date.now();locationData={source:fix.source,capturedAt:new Date(captured).toISOString(),fixAgeMs:fix.ageMs||0,accuracy:fix.accuracy};
+    form.elements.lat.value=fix.lat;form.elements.lon.value=fix.lon;counts();
+    await saveDraft();feedback('Latitude and longitude filled from the current GPS fix.');
   } catch(error) {
     const messages={1:'Location permission denied. Allow location access for this app or browser, then try again.',2:'This device could not determine its location. Try again or enter latitude and longitude manually.',3:'Location request timed out. Try again or enter latitude and longitude manually.'};
     throw new Error(messages[error.code]||error.message||'Unable to get this device’s location.');
@@ -245,7 +250,6 @@ async function loadChatMessages(){
       item.append(text('blockquote',parent?`${parent.sender}: ${parent.text}`:`Reply to earlier message · ${message.parent.slice(-8)}`,'chat-quote'));
     }
     item.append(text('p',message.text,'chat-body'));
-    item.append(text('p',chatRadioStatus(message,status.peers,status.node),'chat-radio-ack'));
     const actions=text('div','','chat-message-actions');
     for(const group of chatReactionGroups(message,status.node)){
       const reaction=button(`${group.emoji} ${group.count}`,()=>reactToChat(message,group.emoji),`secondary chat-reaction${group.mine?' mine':''}`);
@@ -255,7 +259,10 @@ async function loadChatMessages(){
     const picker=text('details','','chat-reaction-picker');picker.dataset.message=message.id;picker.open=opened.has(message.id);picker.append(text('summary','React'));
     const palette=text('div','','chat-emojis');
     for(const emoji of chatEmojis){const choice=button(emoji,()=>reactToChat(message,emoji),'secondary');choice.setAttribute('aria-label',`React ${emoji} to ${message.sender}`);palette.append(choice);}
-    picker.append(palette);actions.append(picker);item.append(actions);list.append(item);
+    picker.append(palette);actions.append(picker);
+    const footer=text('div','','chat-footer');
+    footer.append(actions,text('p',chatRadioStatus(message,status.peers,status.node),'chat-radio-ack'));
+    item.append(footer);list.append(item);
   }
   if(!result.messages.length)list.append(text('p','No chat messages on this radio yet.','muted'));
   restoreChatScroll(savedScroll);
@@ -277,13 +284,32 @@ function poll() {
   polling=refreshScreen().finally(()=>{polling=null;});
   return polling;
 }
+function radioClockKey(next){return `${next.node||''}:${next.bootSession??''}`;}
+async function syncRadioTime(next,reconnected){
+  const key=radioClockKey(next);
+  if(reconnected || key!==timeSyncTarget){timeSyncTarget=key;timeSynced=false;timeSyncRetryAt=0;}
+  if(next.clockSource==='unsynchronized' && timeSynced){timeSynced=false;timeSyncRetryAt=0;}
+  if(timeSynced || Date.now()<timeSyncRetryAt)return;
+  const warning='Connected, but radio time could not sync. Retrying automatically.';
+  try {
+    await api('time',{epoch:Math.floor(Date.now()/1000)});
+    timeSynced=true;next.clockSource='phone/laptop';
+    if($('#feedback').textContent===warning)$('#feedback').hidden=true;
+  }catch(error){
+    timeSyncRetryAt=Date.now()+10000;
+    feedback(warning,true);
+  }
+}
 async function refreshScreen() {
   try {
     const next=await api('status');
+    const reconnected=!status;
     if(status && status.incident!==next.incident){offset=0;selectedForm=null;displayedRecord='';setTrafficView();resetChat();}
     status=next;
+    positionClient.update(next);mapPanel.update(next);
     chatControls();
     $('#connection').textContent=next.simulated?'Simulation · no RF':next.paused?'Connected · TX paused':!next.txEnabled?'Connected · TX disabled':'Connected to radio';
+    await syncRadioTime(next,reconnected);
     $('#active-name').textContent=next.incidentName||'Choose an incident';
     $('#incident-id').textContent=next.incident==='0000000000000000'?'No incident selected':`Incident ID ${next.incident}`;
     $('#radio-diagnostics').textContent=`RX packets ${next.rxPackets||0} · Valid frames ${next.rxFrames||0} · TX frames ${next.txFrames||0} · RX errors ${next.rxErrors||0} · Last RX error ${next.lastRxError||0} · Dropped from queue ${next.dropped||0}`;
@@ -297,6 +323,7 @@ async function refreshScreen() {
     if(!settingsLoaded || !settingsDirty){
       const f=$('#radio-settings');for(const key of ['callsign','primary','backup','bandwidth','sf','cr','power'])f.elements[key].value=String(next[key]);
       for(const key of ['useBackup','txEnabled','paused'])f.elements[key].checked=next[key];
+      f.elements.positionEnabled.checked=next.positionEnabled??true;f.elements.positionMinutes.value=String((next.positionInterval||600)/60);
       f.elements.power.max=next.band==='vhf'?10:20;settingsLoaded=true;
     }
     renderNearbyIncidents();
@@ -310,7 +337,7 @@ async function refreshScreen() {
     const results=await Promise.allSettled(updates);
     if(results.some(result=>result.status==='rejected')){feedback('Some displayed data could not refresh. Retrying automatically.',true);return false;}
     return true;
-  }catch(error){status=null;$('#connection').textContent='Radio disconnected · drafts available';return false;}
+  }catch(error){status=null;positionClient.update(null);$('#connection').textContent='Radio disconnected · drafts available';return false;}
 }
 function deliveryIndicator(m) {
   const delivery=deliveryStatus(m,status?.peers||[],status?.node);
@@ -474,12 +501,16 @@ $('#radio-settings').onsubmit=run(async event=>{
   event.preventDefault();const f=event.target;const d={callsign:f.elements.callsign.value.trim().toUpperCase()};
   for(const key of ['primary','backup','bandwidth','sf','cr','power'])d[key]=Number(f.elements[key].value);
   for(const key of ['useBackup','txEnabled','paused'])d[key]=f.elements[key].checked;
+  d.positionEnabled=f.elements.positionEnabled.checked;d.positionInterval=Number(f.elements.positionMinutes.value)*60;
   const result=await api('config',d);settingsLoaded=false;settingsDirty=false;await poll();feedback(result.radioReady?'Station settings saved.':'Settings saved; radio initialization failed. Check modem settings.',!result.radioReady);
 });
-$('#sync-time').onclick=run(async()=>{await api('time',{epoch:Math.floor(Date.now()/1000)});feedback('Radio time updated from this device.');});
+$('#sync-time').onclick=run(async()=>{
+  await api('time',{epoch:Math.floor(Date.now()/1000)});
+  if(status){timeSyncTarget=radioClockKey(status);timeSynced=true;timeSyncRetryAt=0;status.clockSource='phone/laptop';}
+  await poll();feedback('Radio time updated from this device.');
+});
 async function start() {
   const drafts=(await db('drafts','getAll')).sort((a,b)=>b.savedAt-a.savedAt);fill(drafts[0]?.form);await draftList();await poll();
-  if(status)await api('time',{epoch:Math.floor(Date.now()/1000)}).catch(()=>{});
   setInterval(poll,2000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
   window.addEventListener('focus',()=>poll());

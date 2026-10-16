@@ -6,7 +6,7 @@ let server;
 app.whenReady().then(()=>{
   // A fixed loopback origin preserves browser storage across app restarts. Proxy
   // to the radio avoids mixed-content and cross-origin restrictions in browsers.
-  const allowed=new Set(['index.html','app.js','model.js','style.css','sw.js','manifest.webmanifest','icon.svg']);
+  const allowed=new Set(['index.html','app.js','theme.js','position-client.js','map.js','map-model.js','map-store.js','model.js','style.css','sw.js','manifest.webmanifest','icon.svg']);
   const mimes={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.webmanifest':'application/manifest+json'};
   server=http.createServer(async(req,res)=>{
     try {

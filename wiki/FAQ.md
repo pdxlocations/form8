@@ -70,3 +70,7 @@ The radio-hosted webpage needs the radio to load initially. It cannot reliably r
 ## Does this work with Meshtastic, MeshCore, or VHF radios?
 
 It uses a separate protocol and does not communicate with Meshtastic or MeshCore. Heltec V3, Heltec V4 OLED, XIAO ESP32S3 with Wio-SX1262 B2B, and T3-S3 SX1262/SX1276 have ESP32 build targets. Check the [board guide](https://github.com/pdxlocations/form8/wiki/Board-Guide) for exact variants. T-Beam BPF VHF support is experimental and incomplete. nRF52 boards are excluded. A VHF-to-UHF bridge and Form 1 support are not implemented.
+
+## Can I see locations without internet?
+
+Yes. GPS and LoRa position reports work without internet. Download USGS topo tiles ahead of time to see the U.S. basemap offline; station coordinates and markers remain available without tiles. See [Location sharing and offline maps](Map-and-Location). Phone GPS on the radio’s plain HTTP browser page is restricted by most browsers; use the mobile companion app or onboard GPS.

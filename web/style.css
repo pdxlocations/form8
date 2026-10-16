@@ -24,8 +24,46 @@ button{border-radius:2px;padding:7px 11px;font-size:13px}.grid{gap:0 14px}label{
 /* Incident chat is separate from formal traffic and its counters. */
 .chat-list{min-height:90px;border-top:1px solid var(--border);padding:6px 0}.chat-message{padding:12px;border-bottom:1px solid var(--border);margin:6px 0;background:#f5f6f1}.chat-message.chat-own{background:#eaf1e7;border-left:3px solid var(--green)}.chat-heading{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px}.chat-body{white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0;font-size:16px}.chat-radio-ack{font-size:11px;color:var(--muted);margin:4px 0;overflow-wrap:anywhere}.chat-message-actions,.chat-compose-actions,.chat-emojis{display:flex;align-items:center;flex-wrap:wrap;gap:6px}.chat-message-actions>button{padding:4px 8px;font-size:12px}.chat-reaction.mine{background:#dcebd6;border-color:var(--green);color:var(--green)}.chat-reaction-picker{border:0;padding:0;margin:0}.chat-reaction-picker summary{font-size:12px}.chat-reaction-picker[open]{flex-basis:100%}.chat-emojis button{font-size:17px;padding:4px 8px}.chat-compose-actions{justify-content:space-between;margin-top:10px}.chat-reply{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px;background:#eef2eb;border-left:3px solid var(--green);margin-top:12px;font-size:12px}.chat-reply span{overflow-wrap:anywhere;min-width:0}.chat-quote{border-left:2px solid var(--border);margin:8px 0;padding-left:9px;color:var(--muted);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.over-limit{color:#9a3027;font-weight:700}@media(max-width:640px){.chat-message{padding:9px}.chat-heading{gap:4px}.chat-emojis{gap:3px}.chat-emojis button{padding:4px 7px}}
 
-/* All six workspace icons fit on a phone without horizontal scrolling. */
-nav{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));overflow:visible;gap:0}nav button{display:grid;place-items:center;width:100%;min-width:0;min-height:48px;padding:8px;border-radius:0}nav button svg{display:block;width:24px;height:24px;pointer-events:none}nav button:focus-visible{outline:2px solid var(--green);outline-offset:-4px}nav button.selected{background:#edf3eb}
+/* All seven workspace icons fit on a phone without horizontal scrolling. */
+nav{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));overflow:visible;gap:0}nav button{display:grid;place-items:center;width:100%;min-width:0;min-height:48px;padding:8px;border-radius:0}nav button svg{display:block;width:24px;height:24px;pointer-events:none}nav button:focus-visible{outline:2px solid var(--green);outline-offset:-4px}nav button.selected{background:#edf3eb}
 
 /* Chat shares the page scroll; its small toolbar keeps navigation in reach. */
 .chat-toolbar{position:sticky;top:0;z-index:2;background:#fff;padding:8px 0;border-bottom:1px solid var(--border)}#chat-form{scroll-margin-top:100px;padding-top:8px}.chat-message{scroll-margin-top:100px}
+
+/* Compact chat cards: actions on the left, radio receipts on the right. */
+.chat-list{padding:4px 0}.chat-message{padding:8px 10px;margin:4px 0;border:1px solid var(--border);border-radius:7px}.chat-heading{gap:6px;line-height:1.3}.chat-heading .muted{font-size:11px}.chat-body{margin:4px 0;line-height:1.4}.chat-quote{margin:4px 0;padding-left:7px}.chat-footer{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:end;gap:4px 8px}.chat-message-actions{gap:4px}.chat-radio-ack{margin:0;text-align:right;font-size:10.5px;line-height:1.35;min-width:0}.chat-compose-actions{margin-top:6px}.chat-reply{gap:6px;padding:6px;margin-top:6px}.chat-toolbar{padding:6px 0}#chat-form{padding-top:4px}@media(max-width:640px){.chat-message{padding:7px 8px}.chat-footer{gap:4px 6px}}
+
+/* Appearance is a local client preference, independent of radio configuration. */
+:root{color-scheme:light}
+.appearance-settings{border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:12px}
+.appearance-settings select{max-width:320px}
+:root[data-theme="dark"]{color-scheme:dark;color:#e3ece6;background:#101813;--green:#a1d8b8;--muted:#a9b9af;--border:#52645a}
+[data-theme="dark"] :is(header,.panel,.incident-strip,nav,.chat-toolbar){background:#18241f}
+[data-theme="dark"] :is(input,select,textarea){background:#101b15;color:#e3ece6;border-color:#647b6c}
+[data-theme="dark"] input:disabled{background:#29352e}
+[data-theme="dark"] input::placeholder,[data-theme="dark"] textarea::placeholder{color:var(--muted);opacity:1}
+[data-theme="dark"] button{background:#27593e;color:#f1f8f3;border-color:#81b796}
+[data-theme="dark"] button.secondary{background:transparent;color:var(--green);border-color:var(--border)}
+[data-theme="dark"] nav button{background:transparent;color:var(--muted);border:0;border-bottom:3px solid transparent}
+[data-theme="dark"] nav button.selected{background:#293e30;color:var(--green);border-bottom-color:var(--green)}
+[data-theme="dark"] button.danger{background:#803c35;color:#fff;border-color:#c9897c}
+[data-theme="dark"] :is(.draft-list button,pre.message,.chat-message){background:#223029;color:#e3ece6}
+[data-theme="dark"] :is(.chat-message.chat-own,.chat-reply,.chat-reaction.mine){background:#293e30}
+[data-theme="dark"] .chat-reaction.mine{color:var(--green)}
+[data-theme="dark"] .draft-item .draft-delete{background:#18241f;color:#ffb7a9}
+[data-theme="dark"] :is(.notice,.delivery){background:#3c321d;border-color:#9a824c;color:#f3ddb1}
+[data-theme="dark"] :is(#feedback,.delivery.acked,.manual-ack-list li){background:#263e2d;border-color:#72967a;color:#d4eed9}
+[data-theme="dark"] :is(#feedback.error,.badge.urgent){background:#422821;border-color:#c9897c;color:#ffb7a9}
+[data-theme="dark"] .traffic-receipt{color:#f0cb88}
+[data-theme="dark"] .traffic-receipt.acked{color:var(--green)}
+[data-theme="dark"] .over-limit{color:#ffb7a9}
+
+/* The map only captures touch gestures when Move map is enabled. */
+#node-map{display:block;width:100%;height:360px;border:1px solid var(--border);touch-action:pan-y;background:#e8ece4}
+#node-map.panning{touch-action:none;cursor:grab}
+#node-map:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.map-actions{margin-bottom:8px}.map-actions label{margin:0}.map-actions button{white-space:normal}
+.map-nodes{list-style:none;padding:0;margin:12px 0}.map-nodes li{display:grid;gap:4px;padding:8px 0;border-bottom:1px solid var(--border)}.map-nodes button{white-space:normal;text-align:left;overflow-wrap:anywhere}
+.map-attribution{font-size:11px;margin-top:4px}a{color:var(--green)}
+#map-view-status{margin:4px 0}#map-download-status,#position-status{overflow-wrap:anywhere}
+@media(max-width:640px){#node-map{height:300px}nav button{padding:6px;min-height:44px}nav button svg{width:22px;height:22px}}

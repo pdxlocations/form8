@@ -21,10 +21,10 @@ In **Compose**, find the saved draft above the form and click **Delete** beside 
 ## Attach a location
 
 1. In **Compose**, expand **Optional location**.
-2. Click **Use phone / laptop location** and allow location access if requested.
+2. Click **Use current location** and allow location access if requested.
 3. Check the filled-in **Latitude** and **Longitude** fields before sending.
 
-You can also type both coordinates manually. **Remove location** clears them. Location access may be unavailable in a browser connected directly to the radio's HTTP webpage; use manual coordinates or a configured native companion. The Heltec V3 has no onboard GPS.
+This uses a fresh onboard GPS fix when available, otherwise the phone/laptop location. You can also type both coordinates manually. **Remove location** clears them. Location access may be unavailable in a browser connected directly to the radio's HTTP webpage; use manual coordinates or a configured native companion. The Heltec V3 has no onboard GPS.
 
 ## Switch incidents
 

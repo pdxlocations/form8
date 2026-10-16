@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <Position.h>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -23,7 +24,7 @@ inline uint32_t crc32(const uint8_t* data, size_t size) {
 inline uint32_t crc32(const std::string& s) {
   return crc32(reinterpret_cast<const uint8_t*>(s.data()), s.size());
 }
-enum class Kind : uint8_t { Hello=1, Inventory=2, Request=3, Data=4, Receipt=5, HumanAck=6, Chat=7, ChatReceipt=8 };
+enum class Kind : uint8_t { Hello=1, Inventory=2, Request=3, Data=4, Receipt=5, HumanAck=6, Chat=7, ChatReceipt=8, Position=9 };
 inline bool dataKind(Kind kind){return kind==Kind::Data || kind==Kind::Chat;}
 struct Frame {
   bool repairReply=false; // Local TX bookkeeping; never serialized on the wire.
@@ -43,13 +44,14 @@ inline uint64_t get(const uint8_t* p, size_t n) {
 }
 inline bool valid(const Frame& f) {
   const auto k = static_cast<uint8_t>(f.kind);
-  if (k<1 || k>8 || !f.origin || f.ttl>MAX_HOPS || f.priority>3 || f.payload.size()>CHUNK) return false;
+  if (k<1 || k>9 || !f.origin || f.ttl>MAX_HOPS || f.priority>3 || f.payload.size()>CHUNK) return false;
   if (f.kind != Kind::Hello && !f.incident) return false;
   if (dataKind(f.kind)) {
     if (emptyId(f.id) || !f.total || f.total>(f.kind==Kind::Chat?768:MAX_BODY) || f.parts!=(f.total+CHUNK-1)/CHUNK || f.part>=f.parts) return false;
     return f.payload.size() == std::min(CHUNK, size_t(f.total)-size_t(f.part)*CHUNK);
   }
   if (f.part || f.parts!=1 || f.total!=f.payload.size()) return false;
+  if (f.kind == Kind::Position) { PositionPacket p; return decodePosition(f.payload,p,0); }
   if (f.kind == Kind::Inventory) return !f.payload.empty() && f.payload.size()%20==0;
   if (f.kind == Kind::Request || f.kind == Kind::Receipt || f.kind == Kind::HumanAck || f.kind==Kind::ChatReceipt)
     return !emptyId(f.id) && f.payload.empty();
@@ -99,7 +101,7 @@ public:
 };
 struct InventoryEntry { Id id{}; uint32_t hash=0; };
 class Mesh {
-  struct Queued { Frame f; uint32_t due=0, order=0; };
+  struct Queued { Frame f; uint32_t due=0, order=0, at=0; };
   struct Seen { uint32_t signature=0, at=0; bool used=false; };
   struct Job { Record record; uint8_t next=0; uint32_t nonce=0, order=0; bool repair=false; };
   std::array<Seen,256> seen{};
@@ -122,7 +124,7 @@ public:
   std::function<bool(const Id&,uint32_t)> chatContains;
   std::function<bool(const Record&)> chatPersist;
   std::function<void(const Id&,uint64_t,uint32_t)> chatReceipt;
-  std::function<void(const Frame&)> hello;
+  std::function<void(const Frame&)> hello, position;
   std::function<void(const Id&,uint64_t,uint32_t,bool)> receipt;
   std::function<bool(const Id&,uint32_t)> humanAcknowledged;
   uint32_t dropped=0;
@@ -131,7 +133,7 @@ public:
   uint64_t activeIncident() const { return incident; }
   size_t pending(bool includeChat=true) const {
     if(includeChat)return queue.size()+jobs.size();
-    return std::count_if(queue.begin(),queue.end(),[](const Queued& q){return q.f.kind!=Kind::Chat && q.f.kind!=Kind::ChatReceipt;})+
+    return std::count_if(queue.begin(),queue.end(),[](const Queued& q){return q.f.kind!=Kind::Chat && q.f.kind!=Kind::ChatReceipt && q.f.kind!=Kind::Position;})+
       std::count_if(jobs.begin(),jobs.end(),[](const Job& j){return j.record.kind!=Kind::Chat;});
   }
   bool ready(uint32_t now) const {
@@ -148,8 +150,10 @@ public:
       return false;
     }),queue.end());
   }
+  void cancelPosition(){queue.erase(std::remove_if(queue.begin(),queue.end(),[&](const Queued& q){return q.f.kind==Kind::Position && q.f.origin==self;}),queue.end());}
   bool queueFrame(Frame f,uint32_t now,uint32_t jitter=0) {
     if (!valid(f)) { ++dropped; return false; }
+    if(f.kind==Kind::Position && f.origin==self)cancelPosition();
     // Coalesce our still-unsent control packets; forwarded packets retain
     // their original publisher/nonce and use the duplicate cache instead.
     if(f.origin==self && !dataKind(f.kind))
@@ -158,7 +162,7 @@ public:
         else if(item.f.id==f.id && item.f.hash==f.hash)return true;
       }
     if(queue.size()>=MAX_QUEUE){++dropped;return false;}
-    queue.push_back({std::move(f),now+jitter,order++}); return true;
+    queue.push_back({std::move(f),now+jitter,order++,now}); return true;
   }
   Frame control(Kind kind, const Id& id={}, uint32_t hash=0) {
     Frame f; f.kind=kind; f.origin=self; f.incident=incident; f.id=id; f.nonce=++serial; f.hash=hash; return f;
@@ -195,6 +199,7 @@ public:
     if (f.kind!=Kind::Hello && f.incident!=incident) return;
     if (duplicate(f,now)) return;
     if (f.kind==Kind::Hello) { if (hello) hello(f); }
+    else if(f.kind==Kind::Position){if(position)position(f);}
     else if (f.kind==Kind::Inventory) {
       for (size_t i=0;i<f.payload.size();i+=20) {
         Id id{}; std::copy_n(f.payload.begin()+i,16,id.begin()); auto hash=uint32_t(get(f.payload.data()+i+16,4));
@@ -222,6 +227,7 @@ public:
   // Called only when the radio is ready. Every eighth selection serves the oldest
   // eligible item so emergency traffic cannot indefinitely starve repair/control.
   bool next(uint32_t now,Frame& out) {
+    queue.erase(std::remove_if(queue.begin(),queue.end(),[&](const Queued& q){return q.f.kind==Kind::Position && (uint32_t(now-q.at)>=POSITION_FRESH_MS || positionGet(q.f.payload.data()+12,2)*1000+uint32_t(now-q.at)>POSITION_FRESH_MS);}),queue.end());
     const bool oldest=(++served%8)==0;
     size_t qi=queue.size(),ji=jobs.size(); uint8_t best=0; uint32_t age=~0u;
     auto better=[&](uint8_t p,uint32_t o){return age==~0u || (oldest?o<age:(p>best || (p==best && o<age)));};

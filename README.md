@@ -2,7 +2,7 @@
 
 Form8 exchanges **Portland NET Form 8 / ICS 213 messages and short chat messages over LoRa**, using a phone or laptop connected to a radio’s Wi-Fi hotspot. Messaging works without internet or cell service after installation.
 
-Forms support radio receipts, manual acknowledgments, replies, corrections, and device archives. Chat supports emoji, reactions, and replies. The interface runs on the radio and fits a phone screen.
+Forms support radio receipts, manual acknowledgments, replies, corrections, and device archives. Chat supports emoji, reactions, and replies. A map shows incident stations, with automatic GPS positioning, configurable position sharing, and downloadable U.S. topo maps for offline use. The interface runs on the radio and fits a phone screen.
 
 Builds cover Heltec V3/V4, Seeed XIAO ESP32S3 with Wio-SX1262, and LILYGO T3-S3; T-Beam BPF is experimental. **Radio traffic is plaintext and unauthenticated.** Form8 uses its own protocol and does not communicate with Meshtastic or MeshCore. Physical range and reliability still need testing.
 
@@ -23,3 +23,7 @@ Example screens from the local simulator; these do not demonstrate an RF connect
 ### Incident chat
 
 ![Form8 incident chat with replies, emoji reactions, and radio receipts](docs/screenshots/chat.png)
+
+### Incident map
+
+![Form8 map with simulated incident stations and USGS topo tiles](docs/screenshots/map.png)

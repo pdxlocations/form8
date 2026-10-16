@@ -15,6 +15,16 @@ int main(){
   radio.irqFlags=0x10|RADIOLIB_SX126X_IRQ_RX_DONE;assert(!radioReceivingPacket());
   radio.irqFlags=0x10|RADIOLIB_SX126X_IRQ_HEADER_ERR;assert(!radioReceivingPacket());
 #endif
+#if defined(FORM8_TBEAM_BPF)
+  static_assert(GPS_RX==6 && GPS_TX==5 && GPS_SDA==8 && GPS_SCL==9,"BPF onboard GPS pin routing");
+#ifndef FORM8_HAS_GPS
+#error T-Beam BPF must enable onboard GPS
+#endif
+#else
+#ifdef FORM8_HAS_GPS
+#error Non-GPS targets must use phone location
+#endif
+#endif
   boardPower();
   assert(radio.mod->cs==RADIO_CS && radio.mod->irq==RADIO_IRQ);
   assert(radioBegin(VHF?146.78f:919.5f,500,9,8,VHF?10:14)==0);

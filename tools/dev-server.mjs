@@ -6,13 +6,15 @@ import {crc32,validateForm,validateChatText,chatEmojis,chatTimeline} from '../we
 const root=fileURLToPath(new URL('../',import.meta.url));
 const port=Number(process.env.PORT||8848);
 const stateFile=process.env.FORM8_DEMO_STATE||`${root}/tmp/demo.local.json`;
-const fresh={config:{callsign:'DEMO-1',primary:919.5,backup:0,bandwidth:500,sf:9,cr:8,power:14,useBackup:false,txEnabled:false,paused:false},incident:'0000000000000000',incidentName:'',incidents:[],forms:{}};
+const fresh={config:{callsign:'DEMO-1',primary:919.5,backup:0,bandwidth:500,sf:9,cr:8,power:14,useBackup:false,txEnabled:false,paused:false,positionEnabled:true,positionInterval:600},incident:'0000000000000000',incidentName:'',incidents:[],forms:{}};
 await mkdir(`${root}/tmp`,{recursive:true});
 let state;try{state=JSON.parse(await readFile(stateFile,'utf8'));}catch{state=fresh;}
 state.chats??={};state.chatSequence??=0;
-async function save(){await writeFile(`${stateFile}.tmp`,JSON.stringify(state));await rename(`${stateFile}.tmp`,stateFile);}
+state.config.positionEnabled??=true;state.config.positionInterval??=600;
+let saving=Promise.resolve();
+function save(){const snapshot=JSON.stringify(state);saving=saving.catch(()=>{}).then(async()=>{await writeFile(`${stateFile}.tmp`,snapshot);await rename(`${stateFile}.tmp`,stateFile);});return saving;}
 function reply(res,code,data){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}
-const files=new Set(['index.html','app.js','model.js','style.css','sw.js','manifest.webmanifest','icon.svg']);
+const files=new Set(['index.html','app.js','theme.js','position-client.js','map.js','map-model.js','map-store.js','model.js','style.css','sw.js','manifest.webmanifest','icon.svg']);
 const mimes={html:'text/html',js:'text/javascript',css:'text/css',svg:'image/svg+xml',webmanifest:'application/manifest+json'};
 http.createServer(async(req,res)=>{
   try{
@@ -24,8 +26,13 @@ http.createServer(async(req,res)=>{
     let d={};if(req.method==='POST'){let raw='';for await(const part of req){raw+=part;if(raw.length>8192)throw Error('Request too large');}d=JSON.parse(raw);}
     let output={saved:true},code=200;
     switch(`${req.method} ${url.pathname}`){
-      case 'GET /api/status':output={...state.config,simulated:true,board:'SIMULATOR · no RF',node:'0000000000000001',incident:state.incident,incidentName:state.incidentName,frequency:state.config.useBackup?state.config.backup:state.config.primary,queue:0,dropped:0,clockSource:'phone/laptop',fsReady:true,radioReady:true,radioError:0,storageUsed:JSON.stringify(state).length,storageTotal:4128768,storageWarning:false,freeHeap:200000,band:'uhf',peers:[]};break;
-      case 'POST /api/config':state.config={...state.config,...d};output.radioReady=true;break;
+      case 'GET /api/status':output={...state.config,gpsAvailable:false,gpsFresh:false,location:state.location?{...state.location,ageMs:Date.now()-state.location.capturedAt,fresh:Date.now()-state.location.capturedAt<=120000}:{},simulated:true,board:'SIMULATOR · no RF',node:'0000000000000001',incident:state.incident,incidentName:state.incidentName,frequency:state.config.useBackup?state.config.backup:state.config.primary,queue:0,dropped:0,clockSource:'phone/laptop',fsReady:true,radioReady:true,radioError:0,storageUsed:JSON.stringify(state).length,storageTotal:4128768,storageWarning:false,freeHeap:200000,band:'uhf',peers:state.peers||[]};break;
+      case 'POST /api/config':if(d.positionInterval!==undefined&&(!Number.isInteger(d.positionInterval)||d.positionInterval<60||d.positionInterval>86400))throw Error('Position interval must be 60–86400 whole seconds');if(d.positionEnabled!==undefined&&typeof d.positionEnabled!=='boolean')throw Error('Invalid position sharing setting');state.config={...state.config,...d};output.radioReady=true;break;
+      case 'POST /api/position':{
+        if(!Number.isFinite(d.lat)||!Number.isFinite(d.lon)||Math.abs(d.lat)>90||Math.abs(d.lon)>180||!Number.isInteger(d.ageMs)||d.ageMs<0||d.ageMs>120000)throw Error('Invalid or stale position');
+        if(d.accuracy!==undefined&&(!Number.isFinite(d.accuracy)||d.accuracy<0||d.accuracy>65534))throw Error('Invalid accuracy');
+        state.location={lat:d.lat,lon:d.lon,accuracy:d.accuracy??-1,source:'phone',capturedAt:Date.now()-d.ageMs};break;
+      }
       case 'POST /api/time':break;
       case 'GET /api/incidents':output={incidents:state.incidents};break;
       case 'GET /api/chat':output={incident:state.incident,messages:chatTimeline(Object.values(state.chats).filter(event=>event.meta.incident===state.incident))};break;

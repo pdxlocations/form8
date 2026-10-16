@@ -1,6 +1,6 @@
 # Connect your phone or laptop
 
-The workspace uses six icon buttons that fit across a phone screen: **pencil = Compose**, **envelope = Traffic**, **speech bubble = Chat**, **flag = Incidents**, **archive box = Device archive**, and **gear = Radio setup**. On a computer, hover over an icon to see its name. Screen readers announce each button's name.
+The workspace uses seven icon buttons that fit across a phone screen: **pencil = Compose**, **envelope = Traffic**, **speech bubble = Chat**, **flag = Incidents**, **folded map = Map**, **archive box = Device archive**, and **gear = Radio setup**. On a computer, hover over an icon to see its name. Screen readers announce each button's name.
 
 1. Power on the radio.
 2. In your phone or laptop's Wi-Fi settings, connect to the network shown on the radio, such as `form8-abcd`.
@@ -25,3 +25,13 @@ When a phone or laptop is connected, the Heltec screen shows:
 The battery bars are a rough voltage indication, not an exact percentage or remaining runtime. A `?` / `--V` means no plausible reading is available; `!` means the measured voltage is low. USB/charger power can affect the reading, and the firmware does not detect battery presence or charging state. The sensor handles the original V3 and V3.2 control polarities described in [Heltec’s hardware notes](https://docs.heltec.org/en/node/esp32/wifi_lora_32/hardware_update_log.html); readings still need verification on physical boards.
 
 Disconnect all Wi-Fi clients to show the Wi-Fi credentials again. The battery icon remains visible, and **RXING** appears beside the password label during receive activity. Credentials are also printed over USB serial. Send `wifi` followed by Enter/newline at 115200 baud to print them again; this is how you connect to a headless XIAO build.
+
+## Automatic time sync
+
+Whenever the app connects or reconnects to a radio, it sets the radio’s clock from the phone or laptop automatically. It also detects a radio restart or a switch to a different radio. Normal two-second data refreshes do not repeatedly reset the clock. A failed time update is retried after ten seconds while the radio remains connected. The manual **Set radio time from this device** button remains available in Radio setup. This uses local Wi-Fi HTTP requests and does not broadcast over LoRa. Make sure your phone or laptop’s clock is correct.
+
+## Light and dark mode
+
+Open **Radio setup** (gear icon) and choose **Appearance**: **System (device default)**, **Light**, or **Dark**. System follows your phone or laptop's appearance setting. Your choice applies immediately to every tab and is saved in this browser on this device; you do not need to click Save settings. It works offline and does not change radio settings or send any radio traffic.
+
+For automatic GPS positioning, ten-minute position sharing, and downloading maps before going offline, see [Location sharing and offline maps](Map-and-Location).

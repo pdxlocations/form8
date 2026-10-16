@@ -15,6 +15,7 @@
 #include <Display.h>
 #include <ReceiveActivity.h>
 #include <Battery.h>
+#include <Gps.h>
 #include <sys/time.h>
 #include <map>
 
@@ -53,8 +54,12 @@ uint8_t spreading=9, coding=8;
 int8_t power=VHF?10:14;
 bool useBackup=false;
 constexpr size_t STORAGE_RESERVE=256*1024, MAX_RECORDS=512, MAX_PEERS=30;
-struct Peer { uint64_t id=0, incident=0; String call, name; uint32_t last=0,session=0; };
+struct Peer { uint64_t id=0, incident=0; String call, name; uint32_t last=0,session=0; PositionFix position; uint32_t positionSession=0,positionSequence=0; };
 std::vector<Peer> peers;
+PositionFix gpsFix,phoneFix;
+PositionSchedule positionSchedule;
+bool positionEnabled=true;
+uint32_t positionInterval=600,positionSequence=0;
 
 String hex64(uint64_t x) { char b[17]; snprintf(b,sizeof(b),"%016llx",(unsigned long long)x); return b; }
 String hexId(const Id& id) { String s; s.reserve(32); for(auto b:id){char t[3];snprintf(t,3,"%02x",b);s+=t;}return s; }
@@ -229,9 +234,24 @@ void onHello(const Frame& f) {
   uint32_t session=d["session"]|uint32_t(0);
   for(auto& p:peers)if(p.id==f.origin){
     if(p.incident!=f.incident || p.session!=session || uint32_t(millis()-p.last)>=PEER_ONLINE_MS)broadcasts.discover(active && f.incident==active);
+    if(p.incident!=f.incident)p.position.valid=false;
     p.call=c;p.incident=f.incident;p.name=name;p.last=millis();p.session=session;return;
   }
   if(peers.size()<MAX_PEERS-1){peers.push_back({f.origin,f.incident,c,name,millis(),session});broadcasts.discover(active && f.incident==active);}
+}
+void onPosition(const Frame& f) {
+  PositionPacket packet;if(!decodePosition(f.payload,packet,millis()))return;
+  Peer* peer=nullptr;
+  for(auto& p:peers)if(p.id==f.origin){peer=&p;break;}
+  if(!peer){if(peers.size()>=MAX_PEERS-1)return;peers.push_back({f.origin,f.incident,String(packet.call.c_str()),"",millis(),0});peer=&peers.back();}
+  if(peer->incident==f.incident && peer->positionSession==packet.session && peer->positionSequence && int32_t(packet.sequence-peer->positionSequence)<=0)return;
+  peer->incident=f.incident;peer->call=packet.call.c_str();peer->last=millis();peer->position=packet.fix;
+  peer->positionSession=packet.session;peer->positionSequence=packet.sequence;
+}
+void positionJson(JsonObject out,const PositionFix& fix) {
+  if(!fix.valid)return;
+  out["lat"]=fix.lat;out["lon"]=fix.lon;out["source"]=fix.radio?"radio":"phone";
+  out["accuracy"]=fix.accuracy;out["ageMs"]=fix.ageMs(millis());out["fresh"]=fix.fresh(millis());
 }
 void respond(int code,const JsonDocument& d) { String s;serializeJson(d,s);server.send(code,"application/json",s); }
 void error(int code,const char* s) { JsonDocument d;d["error"]=s;respond(code,d); }
@@ -243,7 +263,7 @@ void IRAM_ATTR radioIRQ() { radioFlag=true; }
 void initRadio() {
   // Radio reconfiguration interrupts in-flight jobs; reload pending durable
   // forms rather than leaving the retry scheduler waiting for a lost TX IRQ.
-  mesh->setIncident(active);retries.clear();humanAckRetries.clear();chatRetries.interrupted(millis());broadcasts.reset(millis());
+  mesh->setIncident(active);retries.clear();humanAckRetries.clear();chatRetries.interrupted(millis());broadcasts.reset(millis());positionSchedule.reset(millis());
   radioReady=false;radioFlag=false;transmitting=false;transmittingLast=false;receiveActivity.reset();
   radioError=radioBegin(useBackup?backup:primary,bandwidth,spreading,coding,power);
   if(radioError!=RADIOLIB_ERR_NONE)return;
@@ -254,13 +274,14 @@ void saveConfig() {
   prefs.putFloat("primary",primary);prefs.putFloat("backup",backup);prefs.putFloat("bw",bandwidth);
   prefs.putUChar("sf",spreading);prefs.putUChar("cr",coding);prefs.putChar("power",power);
   prefs.putBool("alternate",useBackup);prefs.putBool("tx",txEnabled);prefs.putBool("paused",paused);
+  prefs.putBool("posEnabled",positionEnabled);prefs.putUInt("posInterval",positionInterval);
 }
 void api() {
   chatApi();
   server.on("/api/status",HTTP_GET,[]{
     refreshStationCounts();
     JsonDocument d;
-    d["batteryMillivolts"]=batteryReading().millivolts;d["board"]=BOARD_NAME;d["powerNote"]=BOARD_POWER_NOTE;d["node"]=hex64(nodeId);d["callsign"]=callsign;
+    d["batteryMillivolts"]=batteryReading().millivolts;d["board"]=BOARD_NAME;d["powerNote"]=BOARD_POWER_NOTE;d["node"]=hex64(nodeId);d["bootSession"]=bootSession;d["callsign"]=callsign;
     d["incident"]=hex64(active);d["incidentName"]=activeName;d["paused"]=paused;d["txEnabled"]=txEnabled;
     d["radioReady"]=radioReady;d["radioError"]=radioError;d["queue"]=mesh->pending(false);d["dropped"]=mesh->dropped;
     d["rxPackets"]=rxPackets;d["rxFrames"]=rxFrames;d["rxErrors"]=rxErrors;d["txFrames"]=txFrames;d["lastRxError"]=lastRxError;
@@ -270,8 +291,10 @@ void api() {
     d["storageWarning"]=!fsReady || LittleFS.totalBytes()-LittleFS.usedBytes()<STORAGE_RESERVE+512*1024 || allIds(false).size()>460;
     d["frequency"]=useBackup?backup:primary;d["primary"]=primary;d["backup"]=backup;d["useBackup"]=useBackup;
     d["band"]=VHF?"vhf":"uhf";d["bandwidth"]=bandwidth;d["sf"]=spreading;d["cr"]=coding;d["power"]=power;
+    d["gpsAvailable"]=GPS_AVAILABLE;d["gpsFresh"]=gpsFix.fresh(millis());d["positionEnabled"]=positionEnabled;d["positionInterval"]=positionInterval;
+    positionJson(d["location"].to<JsonObject>(),preferredPosition(gpsFix,phoneFix,millis()));
     JsonArray a=d["peers"].to<JsonArray>();
-    for(const auto& p:peers){JsonObject o=a.add<JsonObject>();o["id"]=hex64(p.id);o["callsign"]=p.call;o["incident"]=hex64(p.incident);o["name"]=p.name;o["online"]=uint32_t(millis()-p.last)<PEER_ONLINE_MS;}
+    for(const auto& p:peers){JsonObject o=a.add<JsonObject>();o["id"]=hex64(p.id);o["callsign"]=p.call;o["incident"]=hex64(p.incident);o["name"]=p.name;o["online"]=uint32_t(millis()-p.last)<PEER_ONLINE_MS;if(p.position.valid && p.position.ageMs(millis())<=POSITION_RETAIN_MS)positionJson(o["location"].to<JsonObject>(),p.position);}
     respond(200,d);
   });
   server.on("/api/config",HTTP_POST,[]{
@@ -280,6 +303,8 @@ void api() {
     float freq=d["primary"]|primary,bak=d["backup"]|backup,bw=d["bandwidth"]|bandwidth;
     int sf=d["sf"]|spreading,cr=d["cr"]|coding,pwr=d["power"]|power;
     bool alt=d["useBackup"]|useBackup;
+    int interval=d["positionInterval"]|int(positionInterval);
+    if(interval<60 || interval>86400 || (!d["positionInterval"].isNull() && !d["positionInterval"].is<int>()) || (!d["positionEnabled"].isNull() && !d["positionEnabled"].is<bool>())){error(400,"Position interval must be 60–86400 whole seconds");return;}
     auto goodFreq=[](float f){return isfinite(f) && (VHF?(f>=144 && f<=148):(f>=902 && f<=928));};
     const float choices[]={7.8,10.4,15.6,20.8,31.25,41.7,62.5,125,250,500};bool goodBW=false;
     for(float choice:choices)if(fabs(bw-choice)<0.01)goodBW=true;
@@ -288,8 +313,22 @@ void api() {
       error(400,"Invalid callsign or radio profile");return;
     }
     callsign=call;primary=freq;backup=bak;bandwidth=bw;spreading=sf;coding=cr;power=pwr;useBackup=alt;
+    positionInterval=interval;positionEnabled=d["positionEnabled"]|positionEnabled;
     txEnabled=d["txEnabled"]|txEnabled;paused=d["paused"]|paused;saveConfig();radio.standby();initRadio();
     JsonDocument out;out["saved"]=true;out["radioReady"]=radioReady;respond(200,out);
+  });
+  server.on("/api/position",HTTP_POST,[]{
+    JsonDocument d;if(!input(d))return;
+    if(!d["lat"].is<double>() || !d["lon"].is<double>() || !d["ageMs"].is<uint32_t>()){error(400,"Coordinates and fix age required");return;}
+    double lat=d["lat"],lon=d["lon"];uint32_t age=d["ageMs"];
+    if(!validCoordinates(lat,lon)||age>POSITION_FRESH_MS){error(400,"Position is invalid or older than two minutes");return;}
+    int accuracy=-1;
+    if(!d["accuracy"].isNull()){
+      if(!d["accuracy"].is<double>() || !isfinite(d["accuracy"].as<double>()) || d["accuracy"].as<double>()<0 || d["accuracy"].as<double>()>65534){error(400,"Invalid position accuracy");return;}
+      accuracy=int(ceil(d["accuracy"].as<double>()));
+    }
+    phoneFix={lat,lon,accuracy,false,true,millis(),age};
+    JsonDocument out;out["saved"]=true;respond(200,out);
   });
   server.on("/api/incident",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;String name=d["name"]|"",id=d["id"]|"";
@@ -299,7 +338,7 @@ void api() {
     // Save incident names even after switching; message bodies remain unchanged.
     JsonDocument entry;entry["id"]=hex64(next);entry["name"]=name;
     if(!writeJson("/incidents/"+hex64(next)+".json",entry)){error(507,"Cannot save incident");return;}
-    active=next;activeName=name;mesh->setIncident(active);retries.clear();humanAckRetries.clear();chatRetries.clear();broadcasts.reset(millis());stationDirty=true;saveConfig();inventoryCursor=0;
+    active=next;activeName=name;mesh->setIncident(active);retries.clear();humanAckRetries.clear();chatRetries.clear();broadcasts.reset(millis());positionSchedule.reset(millis());stationDirty=true;saveConfig();inventoryCursor=0;
     JsonDocument out;out["id"]=hex64(active);respond(200,out);
   });
   server.on("/api/incidents",HTTP_GET,[]{
@@ -386,6 +425,8 @@ void setup() {
   primary=prefs.getFloat("primary",primary);backup=prefs.getFloat("backup",backup);bandwidth=prefs.getFloat("bw",bandwidth);
   spreading=prefs.getUChar("sf",spreading);coding=prefs.getUChar("cr",coding);power=prefs.getChar("power",power);
   useBackup=prefs.getBool("alternate",false);txEnabled=prefs.getBool("tx",false);paused=prefs.getBool("paused",false);
+  positionEnabled=prefs.getBool("posEnabled",true);positionInterval=prefs.getUInt("posInterval",600);
+  if(positionInterval<60 || positionInterval>86400)positionInterval=600;
   // Match the partition label in partitions/*.csv. The library defaults to
   // "spiffs", which does not exist in our partition tables. Never auto-format.
   fsReady=LittleFS.begin(false,"/littlefs",10,"littlefs");
@@ -418,7 +459,7 @@ void setup() {
     if(!saved)Serial.printf("Received form save failed: %s\n",persistError);
     return saved;
   };
-  mesh->hello=onHello;mesh->receipt=[](const Id& id,uint64_t p,uint32_t hash,bool human){recordReceipt(id,p,hash,human);};
+  mesh->hello=onHello;mesh->position=onPosition;mesh->receipt=[](const Id& id,uint64_t p,uint32_t hash,bool human){recordReceipt(id,p,hash,human);};
   mesh->chatContains=[](const Id& id,uint32_t hash){JsonDocument m;return readJson(chatPath(id),m) && m["hash"].as<uint32_t>()==hash && parse64(m["incident"]|"")==active;};
   mesh->chatPersist=saveChat;mesh->chatReceipt=chatReceipt;
   mesh->humanAcknowledged=[](const Id& id,uint32_t hash){
@@ -427,6 +468,7 @@ void setup() {
     return false;
   };
   boardPower();SPI.begin(RADIO_SCK,RADIO_MISO,RADIO_MOSI);initRadio();
+  beginGps();
   WiFi.mode(WIFI_AP);
   // Use the AP MAC in network byte order. The tail of getEfuseMac()'s
   // integer representation contains the shared manufacturer bytes.
@@ -446,7 +488,7 @@ void setup() {
   server.onNotFound([]{
     if(server.method()!=HTTP_GET){error(404,"Unknown API route");return;}
     String uri=server.uri();if(uri=="/")uri="/index.html";
-    if(uri.indexOf("..")>=0 || !(uri=="/index.html" || uri=="/app.js" || uri=="/model.js" || uri=="/style.css" || uri=="/sw.js" || uri=="/manifest.webmanifest" || uri=="/icon.svg")){error(404,"Not found");return;}
+    if(uri.indexOf("..")>=0 || !(uri=="/index.html" || uri=="/app.js" || uri=="/theme.js" || uri=="/position-client.js" || uri=="/map.js" || uri=="/map-model.js" || uri=="/map-store.js" || uri=="/model.js" || uri=="/style.css" || uri=="/sw.js" || uri=="/manifest.webmanifest" || uri=="/icon.svg")){error(404,"Not found");return;}
     for(const auto& asset:WEB_ASSETS)if(uri==asset.path){server.sendHeader("Cache-Control","no-cache");server.send_P(200,asset.mime,asset.body);return;}
     error(404,"Not found");
   });server.begin();
@@ -466,7 +508,9 @@ void serialConsole() {
 }
 void loop() {
   serialConsole();
-  server.handleClient();uint32_t now=millis();
+  server.handleClient();uint32_t now=millis();readGps(gpsFix,now);
+  for(auto* fix:{&gpsFix,&phoneFix})if(fix->valid && fix->ageMs(now)>POSITION_RETAIN_MS)fix->valid=false;
+  for(auto& peer:peers)if(peer.position.valid && peer.position.ageMs(now)>POSITION_RETAIN_MS)peer.position.valid=false;
   if(radioReady && radioFlag) {
     radioFlag=false;
     if(transmitting){++txFrames;radio.finishTransmit();transmitting=false;mesh->transmitted(transmittingFrame,now);chatTransmitted(transmittingFrame,now);radio.setPacketReceivedAction(radioIRQ);radio.startReceive();
@@ -500,6 +544,14 @@ void loop() {
     for(const auto& peer:peers)if(active && peer.incident==active && uint32_t(now-peer.last)<PEER_ONLINE_MS)++station.online;
     station.radioState=!radioReady?"RADIO ERROR":transmitting?"TX":rxVisible?"RXING":paused?"RF PAUSED":!txEnabled?"TX OFF":!validCall(callsign)?"SET CALLSIGN":"RF ON";
     showStationStatus(ssid,password,WiFi.softAPgetStationNum(),outgoingMessages,unreadMessages,newestSender,station);
+  }
+  if(canTransmit && active && positionEnabled && positionSchedule.due(now,positionInterval)){
+    const PositionFix fix=preferredPosition(gpsFix,phoneFix,now);
+    if(fix.fresh(now)){
+      PositionPacket packet{fix,bootSession,++positionSequence,callsign.c_str()};
+      Frame f=mesh->control(Kind::Position);f.payload=encodePosition(packet,now);f.total=f.payload.size();
+      if(mesh->queueFrame(f,now,esp_random()%5000))positionSchedule.queued(now);else positionSchedule.failed(now);
+    }
   }
   if(canTransmit && broadcasts.helloDue(now)){
     JsonDocument d;d["callsign"]=callsign;d["name"]=activeName;d["session"]=bootSession;String s;serializeJson(d,s);

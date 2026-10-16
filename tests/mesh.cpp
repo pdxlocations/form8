@@ -28,6 +28,42 @@ struct Node {
 };
 void exchange(Node& a,Node& b,uint32_t now){Frame f;while(a.mesh.next(now,f)){auto bytes=encode(f);b.mesh.receive(bytes.data(),bytes.size(),now,0);a.mesh.transmitted(f,now);}}
 int main(){
+  // GPS selection, compact position codec, quiet scheduling and incident isolation.
+  PositionFix gps{45.52,-122.68,-1,true,true,100,0},phone{46,-123,8,false,true,200,0};
+  assert(preferredPosition(gps,phone,300).radio);
+  assert(!preferredPosition(gps,phone,120150).radio);
+  PositionPacket position{gps,123,1,"GPS-1"},decodedPosition;
+  const auto positionBytes=encodePosition(position,300);
+  assert(positionBytes.size()==27 && decodePosition(positionBytes,decodedPosition,500));
+  assert(std::abs(decodedPosition.fix.lat-45.52)<1e-7 && decodedPosition.fix.radio);
+  assert(decodedPosition.call=="GPS-1" && decodedPosition.session==123 && decodedPosition.sequence==1);
+  assert(encodePosition(position,120101).empty());
+  auto badPosition=positionBytes;badPosition[0]=99;assert(!decodePosition(badPosition,decodedPosition,0));
+  badPosition=positionBytes;badPosition[12]=255;badPosition[13]=255;assert(!decodePosition(badPosition,decodedPosition,0));
+  badPosition=positionBytes;badPosition[22]='?';assert(!decodePosition(badPosition,decodedPosition,0));
+  position.fix.lat=91;assert(encodePosition(position,300).empty());position.fix=gps;
+  PositionSchedule positions;positions.reset(0);assert(positions.due(0,600));positions.queued(0);
+  assert(!positions.due(599999,600));assert(positions.due(600000,600));positions.failed(600000);
+  assert(!positions.due(601999,600));assert(positions.due(602000,600));
+  positions.reset(UINT32_MAX-1000);positions.queued(UINT32_MAX-1000);assert(!positions.due(0,60));assert(positions.due(59000,60));
+  Node positionA(100),positionB(101),positionC(102);int seenPositions=0;
+  positionC.mesh.position=[&](const Frame& frame){PositionPacket p;assert(decodePosition(frame.payload,p,1000));++seenPositions;};
+  Frame positionFrame=positionA.mesh.control(Kind::Position);positionFrame.payload=positionBytes;positionFrame.total=positionBytes.size();
+  assert(positionA.mesh.queueFrame(positionFrame,0));assert(positionA.mesh.pending(false)==0);
+  assert(positionA.mesh.next(0,positionFrame));auto wirePosition=encode(positionFrame);
+  positionB.mesh.receive(wirePosition.data(),wirePosition.size(),100,0);
+  assert(positionB.mesh.next(100,positionFrame));assert(positionFrame.kind==Kind::Position && positionFrame.ttl==MAX_HOPS-1);
+  wirePosition=encode(positionFrame);positionC.mesh.receive(wirePosition.data(),wirePosition.size(),100,0);
+  positionC.mesh.receive(wirePosition.data(),wirePosition.size(),101,0);assert(seenPositions==1);
+  Node foreignPosition(103);foreignPosition.mesh.setIncident(99);foreignPosition.mesh.position=[&](const Frame&){assert(false);};
+  foreignPosition.mesh.receive(wirePosition.data(),wirePosition.size(),100,0);assert(foreignPosition.mesh.pending()==0);
+  Frame expiredPosition=positionA.mesh.control(Kind::Position);expiredPosition.payload=positionBytes;expiredPosition.total=positionBytes.size();
+  assert(positionA.mesh.queueFrame(expiredPosition,0));assert(!positionA.mesh.next(120001,expiredPosition));
+  PositionPacket almostOld{gps,123,2,"GPS-1"};almostOld.fix.age=119000;
+  expiredPosition=positionA.mesh.control(Kind::Position);expiredPosition.payload=encodePosition(almostOld,100);expiredPosition.total=expiredPosition.payload.size();
+  assert(positionA.mesh.queueFrame(expiredPosition,100));assert(!positionA.mesh.next(2101,expiredPosition));
+  assert(positionA.mesh.queueFrame(positionFrame,0));positionA.mesh.cancelPosition();assert(positionA.mesh.pending()==0);
+
   // UTF-8 is bounded by bytes, with malformed sequences and control bytes rejected.
   assert(validChatText(std::string(200,'a')) && !validChatText(std::string(201,'a')));
   assert(validChatText("Hello 👋🏽\nReady ✅") && !validChatText(" \n\t"));

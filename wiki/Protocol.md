@@ -10,14 +10,14 @@ All multibyte integers are little-endian. IDs are 16 opaque bytes. The browser s
 |---|---:|---|
 | 0 | 2 | ASCII `F8` |
 | 2 | 1 | Version = 1 |
-| 3 | 1 | Kind: hello=1, inventory=2, request=3, data=4, receipt=5, human acknowledgment=6, chat=7, chat receipt=8 |
+| 3 | 1 | Kind: hello=1, inventory=2, request=3, data=4, receipt=5, human acknowledgment=6, chat=7, chat receipt=8, position=9 |
 | 4 | 1 | Remaining forwarding TTL, initially 5 |
 | 5 | 1 | Precedence: routine=0, health/welfare=1, priority=2, emergency=3 |
 | 6 | 1 | Fragment index |
 | 7 | 1 | Fragment count |
 | 8 | 8 | Original packet publisher node ID |
 | 16 | 8 | Incident ID (zero allowed only for hello) |
-| 24 | 16 | Record ID (zero allowed for hello/inventory) |
+| 24 | 16 | Record ID (zero allowed for hello/inventory/position) |
 | 40 | 4 | Publisher's session sequence nonce |
 | 44 | 4 | Complete body CRC32, or referenced record checksum |
 | 48 | 2 | Complete record length, or control payload length |
@@ -44,13 +44,31 @@ Chat is stored under `/chat`, separately from `/records`. Its bounded history re
 
 An originating chat event has at most three completed transmissions: initial send, a retry 15 seconds after completion, and a retry 45 seconds after the second completion. Any matching remote chat receipt cancels further sends. Retry checks run once per second and respect pause/TX settings and channel availability. Failed body-job enqueue attempts wait two seconds; at most two body jobs can be occupied by chat, leaving capacity for forms. Complete local chat events have the same three-second receive window as forms. Radio start failures use the normal two-second frame retry; if requeue fails, the event is unblocked for a complete replay. Chat has no periodic inventory, repair, or human-ACK traffic. Reboot/incident changes stop chat retry state; same-incident reconfiguration resumes only the remaining budget. Retained chat is not automatically replayed after a reboot or incident rejoin.
 
+### Position reports
+
+Kind **9** is a single-frame, active-incident-scoped position report. Its payload is **25–38 bytes**; Record ID/checksum are zero and normal frame CRC32 still applies. Other incidents are ignored. There are no receipts, inventories, durable records or unread-message entries. Nodes relay reports with the same TTL/duplicate suppression as other packets. Older firmware rejects this new kind and cannot relay it.
+
+| Payload offset | Bytes | Meaning |
+|---|---:|---|
+| 0 | 1 | Position payload version = 1 |
+| 1 | 1 | Source: phone=0, onboard radio GPS=1 |
+| 2 | 4 | Signed latitude × 10⁷ |
+| 6 | 4 | Signed longitude × 10⁷ |
+| 10 | 2 | Unsigned accuracy in meters; 65535 = unknown |
+| 12 | 2 | Fix age in whole seconds at enqueue, at most 120 |
+| 14 | 4 | Boot session marker |
+| 18 | 4 | Position sequence, nonzero and increasing within a session |
+| 22 | 3–16 | ASCII uppercase callsign, no terminator |
+
+Coordinates, source, callsign, length and age are validated before accepting/relaying. A new report from the same session replaces a peer's location only if its sequence is newer (wrap-aware comparison); a new session can start at sequence one. Peer positions are kept in RAM for up to 30 minutes and are not historical tracks. Transit delays are not included in the reported fix age. Default interval is 600 seconds, configurable from 60 to 86400 seconds. Fresh onboard fixes win over phone fixes; no fresh fix means no broadcast. Only the newest local queued report is retained, and position queue entries expire after two minutes or when fix age plus local queue time exceeds two minutes. Reports do not count toward the form queue indicator. See [location and map instructions](Map-and-Location).
+
 ### Form scheduling
 
 There are at most 48 queued frames, four outbound body jobs, and three inbound assemblies. Higher precedence wins, with every eighth selection serving the oldest eligible item. Radio transmission uses random inter-frame delay and relay jitter. Queue overflow increments a visible dropped counter; inventories and originating-node retries recover from lost frames.
 
 Scheduling constants are in `lib/Form8Mesh/src/TrafficSchedule.h` and `DeliveryRetry.h`. See [the complete operator-facing timing table](https://github.com/pdxlocations/form8/wiki/Radio-Traffic) for all transmission reasons.
 
-- Hello: immediate on startup/join/reconfiguration, then 120–150 seconds. New/restarted/changed-incident/offline-returning peers can prompt a response, with a 30-second response cooldown. Online status expires after 10 minutes without a Hello.
+- Hello: immediate on startup/join/reconfiguration, then 120–150 seconds. New/restarted/changed-incident/offline-returning peers can prompt a response, with a 30-second response cooldown. Online status expires after 10 minutes without a Hello or accepted position report.
 - Quiet inventory: up to eight retained bodies every 300–360 seconds; empty inventories emit no frame. At 200 bodies, one pass takes about 125–150 minutes before congestion.
 - New/restarted same-incident peers trigger one accelerated inventory pass, first page immediately and subsequent pages every 10–12 seconds. Pass starts are at least two minutes apart; discoveries during a pass are coalesced. An inventory supplies implicit durable radio-receipt evidence; missing bodies produce requests.
 - Local full-form retries: three retries with a three-second post-transmission wait, then waits of 60 seconds, 300 seconds, and 900 seconds. Further retries stay at 900 seconds. Required radio receipts cancel the replay. The scheduler checks eligible retries once per second; all timing is subject to radio availability and queue/channel delays.
