@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Install Form8 incident messaging on your ESP32 LoRa radio from official GitHub releases.">
+  <title>Form8 · Radio installer</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <a class="wordmark" href="https://github.com/pdxlocations/form8" aria-label="Form8 on GitHub"><span class="mark">F8</span> FORM8</a>
+      <span class="header-label">RADIO INSTALLER</span>
+    </header>
+    <section class="intro">
+      <p class="eyebrow">INCIDENT MESSAGING · ESP32 LORA</p>
+      <h1>Your radio.<br>Ready for Form8.</h1>
+      <p class="lede">Choose your board, connect it by USB, and install a published firmware build. Releases load automatically from GitHub.</p>
+    </section>
+    <div id="browser-note" class="notice" hidden></div>
+    <section class="installer" aria-labelledby="installer-title">
+      <div class="section-heading"><h2 id="installer-title">Install firmware</h2><span class="badge">USB CONNECTION</span></div>
+      <div class="field">
+        <div class="label-line"><label for="release">01 / Firmware version</label><button id="refresh" type="button" class="text-button">Refresh releases ↻</button></div>
+        <select id="release" disabled><option>Loading releases…</option></select>
+        <div class="release-meta"><label class="check"><input id="prereleases" type="checkbox"> Show prereleases</label><a id="release-link" href="https://github.com/pdxlocations/form8/releases" target="_blank" rel="noopener">Release notes ↗</a></div>
+      </div>
+      <div class="field">
+        <label for="board">02 / Your board</label>
+        <select id="board" disabled><option>Choose a release first</option></select>
+        <p id="board-info" class="hint">Match the exact board, radio chip, and Heltec V4 revision. USB detects the processor, not the board model.</p>
+      </div>
+      <fieldset class="field">
+        <legend>03 / Installation type</legend>
+        <label class="mode"><input type="radio" name="mode" value="update" checked><span><strong>Update an existing Form8 radio</strong><small>App only. Keep the same board and storage layout. Leave “Erase device” unchecked in the installer to preserve forms and settings.</small></span></label>
+        <label class="mode"><input type="radio" name="mode" value="factory"><span><strong>First installation / start fresh</strong><small>Includes the bootloader and initialized storage. Replaces saved messages, incidents, and settings.</small></span></label>
+        <p id="factory-note" class="hint" hidden>This release has no first-install image for this board. Select a newer release or use PlatformIO for the first installation.</p>
+      </fieldset>
+      <div class="confirmations">
+        <label class="check"><input id="confirm-board" type="checkbox"> I checked that this is the correct board and radio variant.</label>
+        <label id="erase-confirmation" class="check danger" hidden><input id="confirm-erase" type="checkbox"> I understand that a first installation replaces all saved data on this radio.</label>
+      </div>
+      <div class="actions">
+        <button id="prepare" class="primary" disabled>Download &amp; verify firmware <span aria-hidden="true">↓</span></button>
+        <div id="install-area" hidden>
+          <esp-web-install-button id="install">
+            <button class="primary" slot="activate">Connect USB &amp; install <span aria-hidden="true">→</span></button>
+            <span slot="unsupported">USB flashing is unavailable in this browser. Use desktop Chrome or Edge.</span>
+            <span slot="not-allowed">Open this page over HTTPS to enable USB flashing.</span>
+          </esp-web-install-button>
+          <p class="hint">Download verified. Choose the radio’s USB port in the next dialog. Keep USB connected until installation finishes.</p>
+        </div>
+        <p id="status" role="status" aria-live="polite">Looking for published builds…</p>
+      </div>
+    </section>
+    <section class="instructions" aria-labelledby="before-title">
+      <h2 id="before-title">Before you connect</h2>
+      <ol>
+        <li><strong>Use a USB data cable.</strong> Close serial monitors and other apps using the radio. Attach its antenna before enabling radio transmission.</li>
+        <li><strong>Choose the exact board.</strong> V4.2 and V4.3 use different front ends. T3-S3 SX1262 and SX1276 have separate builds.</li>
+        <li><strong>After installation, reconnect.</strong> Read the Wi-Fi name and password on the OLED, or use Logs &amp; Console at 115200 baud and send <code>wifi</code> on a headless XIAO or BPF.</li>
+        <li><strong>Open the radio’s app.</strong> Join its Wi-Fi hotspot, visit <code>http://192.168.4.1</code>, then save your callsign and matching radio settings.</li>
+      </ol>
+      <details><summary>My radio does not appear or will not connect</summary><p>Try another data cable or USB port. If needed, hold BOOT, press and release RESET, then release BOOT and connect again. Some boards appear under a different USB port in bootloader mode. Select that port. A USB serial driver may be needed for boards with a USB-to-serial bridge.</p></details>
+      <details><summary>Will this preserve my messages?</summary><p>An app-only update using the same board and partition layout preserves storage when “Erase device” is unchecked. Archive important forms first. A first-install image replaces storage even if that installer checkbox is unchecked.</p></details>
+      <details><summary>What if there are no builds yet?</summary><p>The GitHub release workflow must finish before its builds appear here. Click Refresh releases after a few minutes. Older releases may offer updates only. The site checks GitHub at most once every five minutes.</p></details>
+    </section>
+    <footer><span>Form8 · Open source incident messaging</span><a href="https://github.com/pdxlocations/form8/blob/main/docs/BOARDS.md" target="_blank" rel="noopener">Board guide ↗</a><a href="https://github.com/pdxlocations/form8" target="_blank" rel="noopener">GitHub ↗</a></footer>
+    <noscript><p class="notice">Enable JavaScript to load builds and flash your radio.</p></noscript>
+  </main>
+</body>
+</html>

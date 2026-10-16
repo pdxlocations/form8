@@ -1,0 +1,69 @@
+name: Release firmware
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-firmware-${{ github.event.release.id }}
+  cancel-in-progress: false
+
+jobs:
+  firmware:
+    name: Build and attach all firmware targets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install PlatformIO
+        run: python3 -m pip install platformio==6.1.19
+
+      - name: Check that every environment is packaged
+        run: |
+          python3 - <<'PY'
+          import configparser
+          import json
+          from pathlib import Path
+
+          config = configparser.ConfigParser(interpolation=None)
+          config.read('platformio.ini')
+          environments = {section.removeprefix('env:') for section in config.sections() if section.startswith('env:')}
+          catalog = json.loads(Path('config/firmware-targets.json').read_text())
+          targets = {target['environment'] for target in catalog}
+          if targets != environments or len(targets) != len(catalog):
+              raise SystemExit('Each PlatformIO environment must appear exactly once in config/firmware-targets.json')
+          PY
+
+      - name: Build and package every target
+        run: python3 tools/build_firmware.py --webflasher
+
+      - name: Verify binary checksums
+        working-directory: dist/firmware
+        run: sha256sum --check SHA256SUMS
+
+      - name: Attach firmware to the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            dist/form8-esp32-firmware.zip \
+            dist/firmware/form8-*.bin \
+            dist/firmware/SHA256SUMS \
+            dist/firmware/manifest.json \
+            dist/firmware/README.txt \
+            --clobber

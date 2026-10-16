@@ -44,6 +44,10 @@ The header says **Simulation · no RF**. This demo does not transmit over a radi
 
 ## Install firmware for the first time
 
+Published GitHub releases include binaries for all seven configured targets, a ZIP bundle, `SHA256SUMS`, and a board manifest. See [release builds and board selection](docs/BOARDS.md#automatic-github-release-builds). Regular binaries are app-only updates; separate `-factory.bin` images support first installation and replace saved data.
+
+The [webflasher folder](webflasher/README.md) is a ready-to-upload DreamHost installer that automatically offers GitHub release builds. New releases include separate first-install images and app-only updates.
+
 These steps are for an **empty Heltec V3**, with no Form8 messages you need to keep.
 
 1. Install PlatformIO Core.

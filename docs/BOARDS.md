@@ -12,8 +12,9 @@ These targets build the same Form8 Wi-Fi/web interface and radio protocol. **Com
 | `seeed-xiao-s3` | XIAO ESP32S3 + ESP32S3-specific Wio-SX1262 B2B module | 8 MB | None configured | None configured |
 | `tlora-t3-s3` | LILYGO T3-S3, 868/915 MHz SX1262 version | 4 MB | OLED | Yes |
 | `tlora-t3-s3-sx1276` | LILYGO T3-S3, 868/915 MHz SX1276 version | 4 MB | OLED | Yes |
+| `tbeam-bpf` | LILYGO T-Beam BPF, experimental VHF | 16 MB | None configured | None configured |
 
-The previous `tbeam-bpf` environment is retained as an experimental VHF target. Its display, GPS, power-management hardware, and RF behavior remain unverified. It is not included in the standard firmware bundle.
+The `tbeam-bpf` environment is an experimental VHF target. Its display, GPS, power-management hardware, and RF behavior remain unverified. It is included in the firmware bundle and marked experimental in the manifest.
 
 **Match the target to the physical board and radio chip.** The T3-S3 also comes with SX1278, SX1280, and LR1121 chips; those variants are not covered by these targets. The 433 MHz and 2.4 GHz variants are not substitutes for the listed 868/915 MHz versions. The current default frequency is 919.500 MHz, with BW 500 kHz, SF9, and CR 4/8; select hardware appropriate for that frequency.
 
@@ -77,7 +78,7 @@ Then send `wifi` with a newline if you missed the startup credentials.
 npm run build:firmware
 ```
 
-This builds the six standard ESP32 targets and writes:
+This builds all seven ESP32 targets, including the experimental T-Beam BPF, and writes:
 
 - `dist/form8-esp32-firmware.zip` — the complete app-only binary bundle.
 - `dist/firmware/form8-TARGET.bin` — one app image per target.
@@ -97,6 +98,26 @@ To package already-built images without compiling again:
 ```sh
 python3 tools/build_firmware.py --package-only
 ```
+
+To also build first-install images for the [DreamHost web flasher](../webflasher/README.md):
+
+```sh
+python3 tools/build_firmware.py --webflasher
+```
+
+This builds LittleFS and merges each board's actual bootloader, partition table, OTA initialization, app, and initialized storage into `form8-TARGET-factory.bin` at offset `0`. Factory images replace saved forms and settings. The ordinary app-only update remains at `0x10000`. Both kinds are included in the ZIP and checksum file; the manifest includes factory metadata. Add `--package-only --webflasher` to package existing firmware, filesystem images, and exported flash layouts.
+
+## Automatic GitHub release builds
+
+1. Commit and push the firmware changes, target catalog, and `.github/workflows/release-firmware.yml` before creating the version tag. The workflow must be present in the tagged commit.
+2. On GitHub, open **Releases → Draft a new release**.
+3. Choose or create a version tag, for example `v0.2.0`, pointing to the commit you want to release. Add the release title and notes.
+4. Click **Publish release**. Publishing a prerelease also starts the build; saving a draft or pushing a tag alone does not.
+5. Open **Actions → Release firmware** to watch the build. After all targets build and their checksums pass, the workflow attaches each board's app-only and first-install `.bin` files, `form8-esp32-firmware.zip`, `SHA256SUMS`, `manifest.json`, and `README.txt` to that release. The web flasher discovers these assets automatically.
+
+The workflow uses GitHub's [published release event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release) and the repository's built-in `GITHUB_TOKEN` with `contents: write`; no extra secret is needed. It builds the release tag rather than the latest branch commit. The target catalog in `config/firmware-targets.json` must contain every environment in `platformio.ini`, exactly once; the workflow checks this before compiling.
+
+If a build fails, check the Actions log. No upload step runs until every build and checksum check passes. After resolving the problem, publish a new version tag. For a temporary download/upload failure, use **Re-run failed jobs** on the existing run; matching asset names are replaced on a rerun. Firmware compilation does not establish hardware validation, and the T-Beam BPF remains experimental.
 
 ## nRF boards excluded
 
