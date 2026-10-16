@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+import {manualAcknowledgments, receiptRows} from '../web/model.js';
 
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
 function harness(){
@@ -115,4 +116,18 @@ test('acknowledge button reflects this node’s saved human acknowledgment',asyn
   button=render([{id:'self',human:true}]);assert.equal(button.textContent,'Acknowledged');assert.equal(button.disabled,true);
   button=render([{id:'self',human:false}]);h.context.api=async()=>{throw Error('Cannot save');};
   await assert.rejects(button.onclick(),/Cannot save/);assert.equal(button.textContent,'Acknowledge');assert.equal(button.disabled,false);
+});
+
+test('message detail renders and refreshes the complete manual callsign list',()=>{
+  const h=harness();
+  h.context.manualAcknowledgments=manualAcknowledgments;h.context.receiptRows=receiptRows;
+  h.context.deliveryIndicator=()=>h.context.text('div','Radio delivery');
+  h.context.document={createElement:tag=>h.context.text(tag,'')};
+  vm.runInContext("status={node:'self',callsign:'NET-A',peers:[{id:'b',callsign:'NET-B'}]};"+source.slice(source.indexOf('function renderReceipts('),source.indexOf('async function loadTraffic()')),h.context);
+  h.context.meta={receipts:[{id:'self',human:true},{id:'b',human:true},{id:'c',human:false}]};
+  vm.runInContext('renderReceipts(meta)',h.context);
+  const names=()=>h.$('#delivery-detail').children.find(e=>e.tag==='ul').children.map(e=>e.value);
+  assert.deepEqual(names(),['NET-A','NET-B']);
+  h.context.meta.receipts.push({id:'offline',callsign:'NET-C',human:true});
+  vm.runInContext('renderReceipts(meta)',h.context);assert.deepEqual(names(),['NET-A','NET-B','NET-C']);
 });

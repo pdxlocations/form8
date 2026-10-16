@@ -4,19 +4,21 @@
 
 Each message uses a Portland NET Form 8 / ICS 213 general-message form. Your phone or laptop connects to a radio's Wi-Fi hotspot. The radio sends the message to other Form8 radios.
 
-The first hardware target is the **Heltec WiFi LoRa 32 V3 with 915 MHz hardware**. Form8 is experimental: software tests and firmware builds pass, but range, reliability, and capacity still need physical radio testing. It does not communicate with Meshtastic or MeshCore.
+The first hardware target is the **Heltec WiFi LoRa 32 V3 with 915 MHz hardware**. Build targets also cover Heltec V4 OLED, Seeed XIAO ESP32S3 with its Wio-SX1262 module, and LILYGO T3-S3 with SX1262 or SX1276. See [board selection and build instructions](docs/BOARDS.md) for the exact hardware variants. Form8 is experimental: software tests and firmware builds pass, but range, reliability, and capacity still need physical radio testing. It does not communicate with Meshtastic or MeshCore.
 
 **Radio messages are not encrypted. Treat them as public information.**
 
 ## Find what you need
 
 - [Try it without radios](#try-it-without-radios)
+- [Choose a board target](docs/BOARDS.md)
 - [Install firmware for the first time](#install-firmware-for-the-first-time)
 - [Connect your phone or laptop](#connect-your-phone-or-laptop)
 - [First test with two radios](#first-test-with-two-radios)
 - [Read, acknowledge, reply, or correct](#read-acknowledge-reply-or-correct)
 - [Save an archive and free storage](#save-an-archive-and-free-storage)
 - [Update an existing radio](#update-an-existing-radio)
+- [Automatic radio traffic and retries](#automatic-radio-traffic-and-retries)
 - [Frequently asked questions](#frequently-asked-questions)
 - [Troubleshooting](#troubleshooting)
 - [Developer notes](#developer-notes)
@@ -86,7 +88,21 @@ pio device monitor -b 115200
 6. Open **Radio setup** and enter your callsign, such as `NET-A`.
 7. Check the radio settings, then click **Save settings**.
 
-When a device is connected, the radio's screen shows outgoing messages waiting for radio ACK and unread incoming messages. Disconnect all Wi-Fi clients to show the Wi-Fi credentials again. Credentials are also printed over USB serial.
+When a phone or laptop is connected, the Heltec screen shows:
+
+| Indicator | Meaning |
+|---|---|
+| Callsign and incident | This radio's station and active incident |
+| Three connected squares + number | Other online radios in this incident; excludes your own radio |
+| Up arrow + number | Outgoing forms still waiting for radio ACK |
+| Envelope + number | Unread incoming forms |
+| RF ON / TX / RXING / TX OFF / RF PAUSED | Radio activity and transmission status; RXING appears during reception and briefly afterward so short packets are visible. Errors or a missing callsign are also shown |
+| Battery icon and voltage | Approximate battery level based on measured voltage |
+| Bottom line | Newest unread sender, or frequency and connected Wi-Fi client count when there are no unread forms |
+
+The battery bars are a rough voltage indication, not an exact percentage or remaining runtime. A `?` / `--V` means no plausible reading is available; `!` means the measured voltage is low. USB/charger power can affect the reading, and the firmware does not detect battery presence or charging state. The sensor handles the original V3 and V3.2 control polarities described in [Heltec’s hardware notes](https://docs.heltec.org/en/node/esp32/wifi_lora_32/hardware_update_log.html); readings still need verification on physical boards.
+
+Disconnect all Wi-Fi clients to show the Wi-Fi credentials again. The battery icon remains visible, and **RXING** appears beside the password label during receive activity. Credentials are also printed over USB serial. Send `wifi` followed by Enter/newline at 115200 baud to print them again; this is how you connect to a headless XIAO build.
 
 ## First test with two radios
 
@@ -127,7 +143,7 @@ An incident is the group of messages your radio is currently working with.
 
 **Do not create a second incident with the same name on NET-B.** Creating an incident gives it a new ID. Matching names alone do not put radios in the same incident.
 
-Joining queues an announcement immediately when transmission is allowed. Announcements repeat roughly every 30 seconds; radio traffic can delay them. Use **Refresh data** to check again without reloading the page. The header shows both nodes heard and nodes in your active incident.
+Joining queues an announcement immediately when transmission is allowed. Routine announcements repeat every **2–2½ minutes**. A newly discovered or restarted node can prompt an earlier response, with a 30-second response cooldown; radio traffic can delay either. Use **Refresh data** to check again without reloading the page. The header shows both nodes heard and nodes in your active incident.
 
 ### 4. Send a test message from NET-A
 
@@ -153,7 +169,7 @@ Sending saves the form on your radio and queues it for transmission. It does **n
 
 1. With the message open on `NET-B`, click **Acknowledge**.
 2. After it is saved, the button changes to **Acknowledged** and becomes disabled.
-3. On `NET-A`, open the message and look for **Human acknowledged by NET-B** once the acknowledgment arrives.
+3. On `NET-A`, open the message and look for `NET-B` in the **Manually acknowledged by** list once the acknowledgment arrives.
 
 A **radio ACK** means another radio saved the form. A **human acknowledgment** means someone explicitly clicked **Acknowledge**. Opening a message only marks it read locally.
 
@@ -180,6 +196,12 @@ Open **Traffic** to see a compact message list. Click **Open** to show one messa
 **Sent forms cannot be edited.** For example, if you sent “Bring 10 chairs” but meant 20, use **Correction**, change the text to “Bring 20 chairs,” and send the new form. The original remains available.
 
 Radio data updates every two seconds while the page is running. Each tab also has **Refresh data**, which keeps your current tab, open message, and unsaved edits.
+
+Saved drafts with no subject are labeled **Untitled draft-1**, **Untitled draft-2**, and so on. Numbers stay with each untitled draft across saves and page reloads. When no untitled drafts remain, numbering starts again at 1. These labels do not fill in the form’s Subject field.
+
+### Delete a draft
+
+In **Compose**, find the saved draft above the form and click **Delete** beside its title. Confirm to delete it from this device. If it is the draft you are editing, the form clears for a new draft. Other drafts and sent messages stay saved. Deletion cannot be undone.
 
 ### Attach a location
 
@@ -225,6 +247,56 @@ Firmware-only updates preserve radio forms when the partition layout is unchange
 
 If the filesystem was replaced, the saved active incident selection can still survive in separate settings storage. The firmware restores that incident's list entry at startup. This does not recover erased message bodies.
 
+## Automatic radio traffic and retries
+
+Form8 keeps listening when there is no message to send. It still needs occasional radio traffic to discover stations, repair missed forms, and recover acknowledgments. **All LoRa packets use a shared broadcast channel**, including forms addressed to a callsign; the destination callsign does not turn the radio link into a private connection.
+
+Idle broadcasts are deliberately slow. New/restarted stations trigger faster synchronization, and unanswered messages gradually back off. Random timing spreads stations out so they do not all transmit together.
+
+### Background discovery and synchronization
+
+| Why we transmit | When and how often | Repeats and limits |
+|---|---|---|
+| **Station/incident announcement — Hello** | Once when transmission becomes allowed after startup, incident joining, or radio reconfiguration; then every **120–150 seconds**. Contains callsign, active incident name/ID, and a boot-session marker. | No receipt is required. The next regular announcement is its recovery mechanism. A full local queue is retried after **2 seconds**. |
+| **Discovery response — Hello** | A previously unknown station, changed incident, changed boot session, or station returning after being offline prompts an announcement of our station/incident. | Responses wait until at least **30 seconds** after our last queued Hello. Several discoveries share one pending response. Ordinary announcements from an already-known, unchanged online station do not trigger responses. |
+| **Quiet inventory page** | First checked **5 minutes** after startup/reconfiguration/joining, then one page every **5–6 minutes**. Each page lists up to **8 retained form bodies** and checksums. | No packet is sent if there are no bodies. Pages rotate through the active incident. At 200 bodies, a full quiet pass takes roughly **125–150 minutes**, before congestion. Queue failures retry the page after **2 seconds**. |
+| **New/restarted-node synchronization — inventory pages** | A new/restarted station in our active incident, an incident change into our incident, or a same-incident station returning after the 10-minute offline threshold triggers a full inventory pass: first page as soon as allowed, following pages every **10–12 seconds**. | At most one accelerated pass starts per **2 minutes**. Discoveries during an existing pass are combined rather than restarting it. A 200-body pass takes roughly **4–5 minutes**, before congestion. Empty inventories stay silent. |
+| **Recovery of our saved manual ACKs** | On a form's normal, quiet inventory-page visit, re-advertise this station's saved manual ACK only if at least **30 minutes** have passed since its last tracked ACK queue attempt and its early repeats are finished. | This is a minimum interval per form, not a promise of one ACK every 30 minutes: large inventories take longer to revisit. Only retained bodies in the active incident participate. Reboot/reconfiguration clears the in-memory timing, so a later quiet page may repeat an older saved ACK. |
+
+An inventory is also evidence that its publisher still holds a form body. A receiver can update that station's radio receipt from the inventory without sending an extra ACK packet just for that evidence.
+
+### Traffic caused by sending, receiving, or repairing a message
+
+| Why we transmit | Trigger | Retry behavior |
+|---|---|---|
+| **New form — Data** | You send a new message, reply, or correction. The saved form is queued immediately, subject to radio/channel availability. Long forms are split into packets. | Full-form retry waits after completed transmissions are **3 s, 3 s, 3 s, 1 min, 5 min, then 15 min**. The 15-minute interval continues while required radio receipts are missing. There is a three-second receive-only window after each complete local form transmission. |
+| **Missing-form request — Request** | An inventory advertises a body this radio does not have. Deliberately archived/discarded bodies are not requested again. | There is no separate periodic request timer. If the body is still missing when another inventory advertises it, a new request can be made. Identical requests still waiting in our queue are combined. Requests have the normal relay delay plus up to **2.8 seconds** of per-entry spreading within an eight-entry inventory. |
+| **Repair body — Data** | A request matches a retained body and checksum on this radio. | Queue the matching body; an already-pending job for that body is reused. No independent repair-response retry timer runs. Another request can trigger another response if needed. |
+| **Radio receipt — Receipt** | A complete received body is successfully saved to flash; or the first fragment of an already-known body is received again. | One receipt per trigger, with identical still-unsent receipts combined. A sender's later Data retry can prompt another receipt. Inventories also provide receipt evidence. Failed saves do not generate a successful receipt. |
+| **Operator acknowledgment — HumanAck** | You click **Acknowledge** and the acknowledgment is saved. Reading a form does not trigger this packet. | Initial queue attempt, then up to **two early repeats**, scheduled around **15 and 60 seconds** after the initial successful queue attempt. A full queue is retried after **2 seconds**. Slow recovery follows the background rule above. |
+| **Manual ACK after a repair body — HumanAck** | This radio finishes sending a requested body that its own operator previously acknowledged. | Queue our saved manual ACK **after the final body fragment**, so the receiving station can store the body before processing the ACK. One per repair-body response; no separate retry timer for this response. |
+| **Forwarding someone else's packet — relay** | A valid new packet arrives with forwarding allowance remaining. Other-incident traffic is ignored except for Hello discovery packets. | Forward once after a random **100–1,299 ms** delay, plus queue/channel delays. Duplicate packets are suppressed by a **2-minute cache**. Packets allow up to **five forwards** after the originating transmission. A new retry/announcement is a new packet and can be relayed again. There is no idle relay timer. |
+
+These intervals describe when work becomes eligible or is queued, not guaranteed on-air times. Higher-precedence forms, queued packets, reception already in progress, and a busy channel can delay transmission. Every eighth queue selection serves the oldest eligible item so routine/control traffic can still progress.
+
+### Channel access, queue failures, and stopping retries
+
+- After an ordinary packet transmission, allow a random **100–699 ms** gap. After a complete locally originated form, the **3-second receive-only window** takes precedence.
+- If channel scanning finds activity or returns an error, wait **500–2,999 ms** before trying again. A channel scan is listening, not another broadcast.
+- If starting a packet transmission fails, retry that frame after **2 seconds**. If a local Data frame cannot be requeued, unblock its form for a later full-form attempt instead of leaving it permanently marked queued. A dropped relay/control frame relies on the recovery rules above.
+- Identical locally generated Hello, inventory, request, receipt, and manual-ACK packets that are still unsent are combined. The mesh keeps at most **48 queued frames** and **4 outgoing body jobs**; overflow is counted under Radio setup.
+- **Transmission disabled**, **Pause all radio transmission**, a missing/invalid callsign, or an unavailable radio prevents LoRa transmissions. The radio can still receive when its hardware is available. Unpausing/reconfiguring resets the in-memory schedules.
+- A full-form retry stops once its required radio receipts arrive. Requested repair bodies are still sent in full for stations that missed them. Sent forms are kept pending rather than silently dropped because a station is absent. A human acknowledgment is not additionally required to stop a radio-delivery retry.
+- Switching incidents clears queued work and retry schedules for the previous incident; its stored forms stay saved. Rebooting or reconfiguring the radio also restarts pending forms' retry sequence. Archiving/discarding cancels only that body's buffered transmissions and stale queued inventory pages; it does not restart unrelated messages or announce the unchanged incident again. A transmission already in progress may finish.
+
+### What happens on Wi-Fi instead of LoRa?
+
+The phone/laptop webpage checks radio status every **2 seconds**. Clicking **Refresh data**, reading a message, editing a draft, updating the LCD, and measuring battery voltage do not themselves broadcast a LoRa packet. Sending a form, joining an incident, saving radio configuration, and manually acknowledging a form have the radio effects described above.
+
+The Wi-Fi hotspot has its own discovery beacons, independent of LoRa: the pinned Arduino framework uses a **100-TU beacon interval**, approximately **102 ms**, while the hotspot is running. Wi-Fi association, connection maintenance, and webpage requests also generate Wi-Fi traffic. Those are not included in the LoRa TX/RX counters or the LoRa schedules above.
+
+Update **all** participating radios to get the quieter behavior throughout the network. Older firmware can still originate and relay its more frequent control traffic. Slower quiet inventories trade background airtime for slower recovery of a loss that does not trigger a new-node pass or a pending-form retry; delivery still needs physical radio testing.
+
 ## Frequently asked questions
 
 ### How long can messages be?
@@ -251,13 +323,13 @@ No. Forms are text-only. Optional coordinates are supported.
 
 ### How do I know a message arrived?
 
-Look for **Radio ACK** from the intended station. That means its radio saved the form. Look for **Human acknowledged by** when you need confirmation that an operator acknowledged it. A local save or a cleared unread indicator is not a remote receipt.
+Look for **Radio ACK** from the intended station. That means its radio saved the form. The **Manually acknowledged by** list shows every station with a saved manual acknowledgment, including your own. An unknown callsign is shown as its node ID. A local save or a cleared unread indicator is not a remote receipt.
 
 ### How long does delivery take?
 
 There is no guaranteed delivery time. It depends on message length, radio settings, signal conditions, relays, and other traffic. Short messages require less airtime.
 
-Pending local messages are retried automatically: an initial send plus up to three retries, with a three-second receive-only window after each complete send, followed by retries every 60 seconds. A busy channel, paused transmission, or queued traffic can delay these attempts. Radios also periodically check for missing forms.
+Pending local messages are retried automatically: an initial send plus up to three quick retries spaced three seconds after the previous complete transmission, then waits of **1 minute**, **5 minutes**, and **15 minutes**. Further retries stay at 15-minute intervals until the required radio receipts arrive. A busy channel, paused transmission, or queued traffic can delay these attempts. See [all automatic traffic and retry rules](#automatic-radio-traffic-and-retries).
 
 ### Who receives a broadcast? Who receives an addressed message?
 
@@ -269,7 +341,7 @@ Yes. Compatible Form8 radios can forward packets through multiple hops. Actual r
 
 ### Why does a station still show Pending when it is offline?
 
-Known stations remain on a message's tracked list, even when they stop announcing themselves. This avoids treating an absent station as a successful delivery. A station is shown offline after three minutes without an announcement.
+Known stations remain on a message's tracked list, even when they stop announcing themselves. This avoids treating an absent station as a successful delivery. A station is shown offline after **10 minutes** without an announcement. This allows several missed announcements at the quieter 2–2½ minute interval.
 
 ### Where are drafts, messages, and archives saved?
 
@@ -294,7 +366,7 @@ The radio-hosted webpage needs the radio to load initially. It cannot reliably r
 
 ### Does this work with Meshtastic, MeshCore, or VHF radios?
 
-It uses a separate protocol and does not communicate with Meshtastic or MeshCore. Heltec V3 with 915 MHz hardware is the first target. T-Beam BPF VHF support is experimental and incomplete. A VHF-to-UHF bridge and Form 1 support are not implemented.
+It uses a separate protocol and does not communicate with Meshtastic or MeshCore. Heltec V3, Heltec V4 OLED, XIAO ESP32S3 with Wio-SX1262 B2B, and T3-S3 SX1262/SX1276 have ESP32 build targets. Check the [board guide](docs/BOARDS.md) for exact variants. T-Beam BPF VHF support is experimental and incomplete. nRF52 boards are excluded. A VHF-to-UHF bridge and Form 1 support are not implemented.
 
 ## Troubleshooting
 
@@ -306,7 +378,7 @@ Check in this order:
 2. Under **Radio setup**, compare the actual frequency, bandwidth, spreading factor, coding rate, and backup selection on both radios.
 3. Confirm each has a saved callsign, **Enable radio transmission** checked, and **Pause all radio transmission** unchecked.
 4. Compare the full **Incident ID** in both headers. Matching incident names are not enough.
-5. Click **Refresh data**. Give periodic announcements time to arrive; they repeat roughly every 30 seconds when transmission is allowed.
+5. Click **Refresh data**. Give periodic announcements time to arrive; routine announcements repeat every 2–2½ minutes when transmission is allowed. A new/restarted node normally prompts an earlier discovery response, subject to a 30-second response cooldown.
 6. Check **nodes heard** versus **nearby incident nodes**. A heard node may be using another incident.
 7. Under **Radio setup**, watch the receive/transmit counters while sending a short test message. **TX frames** counts completed transmissions; **RX packets** counts successfully read packets; **Valid frames** counts packets recognized by this protocol. The counters restart when the radio reboots.
 8. If there is still no reception, check the antennas, power, and physical radio path. A passing software test does not establish that a radio link works.
@@ -342,11 +414,13 @@ Click **Refresh data** on your current tab. It keeps your tab and unsaved edits.
 ```sh
 npm test
 npm run test:mesh
+npm run test:display
+npm run test:boards
 pio run -e heltec-v3
 pio run -e heltec-v3 -t buildfs
 ```
 
-`buildfs` builds a filesystem image on your computer; it does not upload it. The native mesh tests compile the transport code used by the firmware with address/undefined-behavior sanitizers. Test coverage includes packet validation, reassembly, relaying, receipts, failed saves, repair, incident isolation, queues, and scheduling. UI tests cover refresh behavior, message navigation, and human acknowledgment state.
+`buildfs` builds a filesystem image on your computer; it does not upload it. The native mesh tests compile the transport code used by the firmware with address/undefined-behavior sanitizers. Test coverage includes packet validation, reassembly, relaying, receipts, failed saves, repair, incident isolation, queues, and scheduling. UI tests cover refresh behavior, message navigation, and human acknowledgment state. After the Heltec build installs its display dependency, `npm run test:display` tests the OLED layout using the same fonts, checks drawing bounds and battery-sensing logic, and writes previews to `tmp/oled-previews/`. These host tests do not verify real battery readings.
 
 Before relying on the system in an incident, physical testing still needs to cover two-radio delivery, a three-radio relay chain, reboot persistence, interrupted writes, full storage, offload recovery, and sustained load.
 
@@ -362,6 +436,6 @@ The companions use the same interface as the radio-hosted webpage.
 
 The Heltec V3 uses SCK 9, MISO 11, MOSI 10, CS 8, DIO1 14, reset 12, and busy 13, with DIO2 RF switching and a 1.8 V DIO3 TCXO. No PSRAM is required. The radio profile uses sync word `0x12` and an eight-symbol preamble.
 
-The Heltec filesystem is approximately 3.94 MiB, with a 256 KiB reserve. Forms and receipt metadata are stored in LittleFS. The firmware does not automatically format storage if mounting fails. Offloaded bodies are not served back to the mesh from a companion; automatic restoration and metadata compaction remain future work.
+File storage is approximately 3.94 MiB on Heltec V3 and XIAO S3, 9.94 MiB on Heltec V4, and 0.94 MiB on T3-S3, with a 256 KiB reserve. See [the board guide](docs/BOARDS.md) for build commands and firmware bundles. Forms and receipt metadata are stored in LittleFS. The firmware does not automatically format storage if mounting fails. Offloaded bodies are not served back to the mesh from a companion; automatic restoration and metadata compaction remain future work.
 
 For deeper detail, see [the protocol](docs/PROTOCOL.md), [the implementation requirements](REQUIREMENTS.md), and [the companion guide](docs/COMPANIONS.md).

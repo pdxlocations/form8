@@ -25,6 +25,7 @@ inline uint32_t crc32(const std::string& s) {
 }
 enum class Kind : uint8_t { Hello=1, Inventory=2, Request=3, Data=4, Receipt=5, HumanAck=6 };
 struct Frame {
+  bool repairReply=false; // Local TX bookkeeping; never serialized on the wire.
   Kind kind = Kind::Data;
   uint8_t ttl = MAX_HOPS, priority = 0, part = 0, parts = 1;
   uint64_t origin = 0, incident = 0;
@@ -65,7 +66,7 @@ inline std::vector<uint8_t> encode(const Frame& f) {
 }
 inline bool decode(const uint8_t* p, size_t n, Frame& f) {
   if (n<54 || n>54+CHUNK || p[0]!='F' || p[1]!='8' || p[2]!=1 || crc32(p,n-4)!=get(p+n-4,4)) return false;
-  f.kind=static_cast<Kind>(p[3]); f.ttl=p[4]; f.priority=p[5]; f.part=p[6]; f.parts=p[7];
+  f.repairReply=false;f.kind=static_cast<Kind>(p[3]); f.ttl=p[4]; f.priority=p[5]; f.part=p[6]; f.parts=p[7];
   f.origin=get(p+8,8); f.incident=get(p+16,8); std::copy(p+24,p+40,f.id.begin());
   f.nonce=get(p+40,4); f.hash=get(p+44,4); f.total=get(p+48,2);
   f.payload.assign(p+50,p+n-4); return valid(f);
@@ -99,7 +100,7 @@ struct InventoryEntry { Id id{}; uint32_t hash=0; };
 class Mesh {
   struct Queued { Frame f; uint32_t due=0, order=0; };
   struct Seen { uint32_t signature=0, at=0; bool used=false; };
-  struct Job { Record record; uint8_t next=0; uint32_t nonce=0, order=0; };
+  struct Job { Record record; uint8_t next=0; uint32_t nonce=0, order=0; bool repair=false; };
   std::array<Seen,256> seen{};
   size_t seenCursor=0;
   std::vector<Queued> queue;
@@ -119,6 +120,7 @@ public:
   std::function<bool(const Record&)> persist;
   std::function<void(const Frame&)> hello;
   std::function<void(const Id&,uint64_t,uint32_t,bool)> receipt;
+  std::function<bool(const Id&,uint32_t)> humanAcknowledged;
   uint32_t dropped=0;
   explicit Mesh(uint64_t node,uint32_t bootSequence=0): serial(bootSequence),self(node) {}
   void setIncident(uint64_t value) { incident=value; queue.clear(); jobs.clear(); reassembler=Reassembler{}; }
@@ -129,37 +131,55 @@ public:
     for(const auto& item:queue)if(int32_t(now-item.due)>=0)return true;
     return false;
   }
-  void cancelPublish(const Id& id) {
-    jobs.erase(std::remove_if(jobs.begin(),jobs.end(),[&](const Job& j){return j.record.id==id;}),jobs.end());
-    queue.erase(std::remove_if(queue.begin(),queue.end(),[&](const Queued& q){return q.f.kind==Kind::Data && q.f.origin==self && q.f.id==id;}),queue.end());
+  void cancelPublish(const Id& id,bool offloaded=false) {
+    jobs.erase(std::remove_if(jobs.begin(),jobs.end(),[&](const Job& j){return j.record.id==id && (offloaded || !j.repair);}),jobs.end());
+    queue.erase(std::remove_if(queue.begin(),queue.end(),[&](const Queued& q){
+      if(q.f.kind==Kind::Data && q.f.id==id && (offloaded || !q.f.repairReply))return true;
+      if(offloaded && q.f.kind==Kind::Inventory && q.f.origin==self)
+        for(size_t i=0;i<q.f.payload.size();i+=20)if(std::equal(id.begin(),id.end(),q.f.payload.begin()+i))return true;
+      return false;
+    }),queue.end());
   }
   bool queueFrame(Frame f,uint32_t now,uint32_t jitter=0) {
-    if (!valid(f) || queue.size()>=MAX_QUEUE) { ++dropped; return false; }
+    if (!valid(f)) { ++dropped; return false; }
+    // Coalesce our still-unsent control packets; forwarded packets retain
+    // their original publisher/nonce and use the duplicate cache instead.
+    if(f.origin==self && f.kind!=Kind::Data)
+      for(const auto& item:queue)if(item.f.origin==self && item.f.kind==f.kind && item.f.incident==f.incident){
+        if(f.kind==Kind::Hello || f.kind==Kind::Inventory){if(item.f.payload==f.payload)return true;}
+        else if(item.f.id==f.id && item.f.hash==f.hash)return true;
+      }
+    if(queue.size()>=MAX_QUEUE){++dropped;return false;}
     queue.push_back({std::move(f),now+jitter,order++}); return true;
   }
   Frame control(Kind kind, const Id& id={}, uint32_t hash=0) {
     Frame f; f.kind=kind; f.origin=self; f.incident=incident; f.id=id; f.nonce=++serial; f.hash=hash; return f;
   }
-  bool publish(const Record& r) {
+  bool publish(const Record& r,bool repair=false) {
     if (r.incident!=incident || r.body.empty() || r.body.size()>MAX_BODY || crc32(r.body)!=r.hash) return false;
-    for (const auto& j:jobs) if (j.record.id==r.id) return true;
+    for (auto& j:jobs) if (j.record.id==r.id) {j.repair|=repair;return true;}
     if (jobs.size()>=4) { ++dropped; return false; }
-    jobs.push_back({r,0,++serial,order++}); return true;
+    jobs.push_back({r,0,++serial,order++,repair}); return true;
   }
   bool announce(const std::string& text,uint32_t now) {
     Frame f=control(Kind::Hello); f.payload.assign(text.begin(),text.end()); f.total=f.payload.size(); return queueFrame(f,now);
   }
-  void inventory(const std::vector<InventoryEntry>& entries,uint32_t now) {
+  bool inventory(const std::vector<InventoryEntry>& entries,uint32_t now) {
+    bool accepted=true;
     for (size_t pos=0;pos<entries.size();pos+=8) {
       Frame f=control(Kind::Inventory);
       for (size_t i=pos;i<std::min(entries.size(),pos+8);++i) {
         f.payload.insert(f.payload.end(),entries[i].id.begin(),entries[i].id.end()); put(f.payload,entries[i].hash,4);
       }
-      f.total=f.payload.size(); queueFrame(f,now);
+      f.total=f.payload.size(); if(!queueFrame(f,now))accepted=false;
     }
+    return accepted;
   }
-  void acknowledge(const Id& id,uint32_t hash,bool human,uint32_t now) {
-    queueFrame(control(human?Kind::HumanAck:Kind::Receipt,id,hash),now);
+  bool acknowledge(const Id& id,uint32_t hash,bool human,uint32_t now) {
+    return queueFrame(control(human?Kind::HumanAck:Kind::Receipt,id,hash),now);
+  }
+  void transmitted(const Frame& f,uint32_t now) {
+    if(f.kind==Kind::Data && f.repairReply && f.part+1==f.parts && humanAcknowledged && humanAcknowledged(f.id,f.hash))acknowledge(f.id,f.hash,true,now);
   }
   void receive(const uint8_t* data,size_t len,uint32_t now,uint32_t jitter=100) {
     Frame f; if (!decode(data,len,f) || f.origin==self) return;
@@ -173,7 +193,7 @@ public:
         else queueFrame(control(Kind::Request,id,hash),now,jitter+uint32_t(i)*20);
       }
     } else if (f.kind==Kind::Request) {
-      Record r; if (load && load(f.id,r) && r.hash==f.hash) publish(r);
+      Record r; if (load && load(f.id,r) && r.hash==f.hash) publish(r,true);
     } else if (f.kind==Kind::Receipt || f.kind==Kind::HumanAck) {
       if (receipt) receipt(f.id,f.origin,f.hash,f.kind==Kind::HumanAck);
     } else if (f.kind==Kind::Data) {
@@ -200,12 +220,12 @@ public:
     if(qi<queue.size()) { out=std::move(queue[qi].f); queue.erase(queue.begin()+qi); duplicate(out,now); return true; }
     if(ji<jobs.size()) {
       auto& j=jobs[ji]; auto& r=j.record;
-      out=Frame{}; out.kind=Kind::Data; out.origin=r.origin; out.incident=r.incident; out.id=r.id;
+      out=Frame{}; out.kind=Kind::Data; out.repairReply=j.repair;out.origin=r.origin; out.incident=r.incident; out.id=r.id;
       out.hash=r.hash; out.priority=r.priority; out.total=r.body.size(); out.parts=(r.body.size()+CHUNK-1)/CHUNK;
       out.part=j.next++; out.nonce=j.nonce;
       size_t start=size_t(out.part)*CHUNK, end=std::min(r.body.size(),start+CHUNK);
       out.payload.assign(r.body.begin()+start,r.body.begin()+end);
-      if(j.next==out.parts) jobs.erase(jobs.begin()+ji);
+      if(j.next==out.parts)jobs.erase(jobs.begin()+ji);
       duplicate(out,now); return true;
     }
     return false;

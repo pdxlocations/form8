@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {crc32, token, validateForm, receiptRows, verifyArchive, deliveryStatus} from '../web/model.js';
+import {crc32, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments} from '../web/model.js';
 test('CRC matches the radio wire protocol, including UTF-8',()=>{
   assert.equal(crc32('123456789'),0xcbf43926);assert.equal(crc32('incident'),crc32(new TextEncoder().encode('incident')));
 });
@@ -34,4 +34,16 @@ test('directed messages need the addressed callsign ACK; relay receipts are visi
   m.receipts.push({id:'b',callsign:'K1BBB'});
   assert.equal(deliveryStatus(m,[],'self').complete,true);
   assert.equal(deliveryStatus(m,[],'self').label,'Radio ACK by K1AAA, K1BBB');
+});
+
+test('manual acknowledgment list includes every station, including self and offline stations, without counting radio-only receipts',()=>{
+  const meta={expected:[{id:'offline',callsign:'NET-OFFLINE'}],receipts:[
+    {id:'self',human:true},{id:'remote',human:true},{id:'offline',human:true},
+    {id:'saved',callsign:'NET-SAVED',human:true},{id:'unknown',human:true},{id:'radio',human:false}
+  ]};
+  assert.deepEqual(manualAcknowledgments(meta,[{id:'remote',callsign:'NET-B',online:true}], 'self','NET-A'),
+    ['NET-A','NET-B','NET-OFFLINE','NET-SAVED','unknown']);
+  meta.receipts[0].callsign='NET-ORIGINAL';
+  assert.equal(manualAcknowledgments(meta,[],'self','NET-RENAMED')[0],'NET-ORIGINAL');
+  assert.deepEqual(manualAcknowledgments({receipts:[{id:'radio',human:false}]},[],'self','NET-A'),[]);
 });

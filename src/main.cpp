@@ -8,9 +8,12 @@
 #include <Mesh.h>
 #include <RecordName.h>
 #include <DeliveryRetry.h>
+#include <TrafficSchedule.h>
 #include <WebAssets.h>
 #include <Board.h>
 #include <Display.h>
+#include <ReceiveActivity.h>
+#include <Battery.h>
 #include <sys/time.h>
 #include <map>
 
@@ -18,6 +21,7 @@ using namespace form8;
 WebServer server(80);
 Preferences prefs;
 uint64_t nodeId;
+uint32_t bootSession=0;
 Mesh* mesh=nullptr;
 String callsign, password, activeName, ssid;
 bool stationDirty=true;
@@ -28,13 +32,18 @@ uint64_t active=0;
 bool paused=false, txEnabled=false, fsReady=false, radioReady=false, transmitting=false;
 volatile bool radioFlag=false;
 int16_t radioError=0;
-uint32_t txNext=0, helloAt=0, inventoryAt=0, retryAt=0;
-bool helloPending=true;
+uint32_t txNext=0,retryAt=0;
+BroadcastSchedule broadcasts;
+HumanAckRetries humanAckRetries;
+ReceiveActivity receiveActivity;
+uint32_t rxProgressAt=0;
+bool displayedRxActivity=false;
 uint32_t rxPackets=0, rxFrames=0, rxErrors=0, txFrames=0;
 int16_t lastRxError=0;
 size_t inventoryCursor=0;
 DeliveryRetry retries;
 Id transmittingId{};
+Frame transmittingFrame;
 bool transmittingLast=false;
 String clockSource="unsynchronized";
 float primary=VHF?146.780f:919.500f, backup=0, bandwidth=500;
@@ -42,7 +51,7 @@ uint8_t spreading=9, coding=8;
 int8_t power=VHF?10:14;
 bool useBackup=false;
 constexpr size_t STORAGE_RESERVE=256*1024, MAX_RECORDS=512, MAX_PEERS=30;
-struct Peer { uint64_t id=0, incident=0; String call, name; uint32_t last=0; };
+struct Peer { uint64_t id=0, incident=0; String call, name; uint32_t last=0,session=0; };
 std::vector<Peer> peers;
 
 String hex64(uint64_t x) { char b[17]; snprintf(b,sizeof(b),"%016llx",(unsigned long long)x); return b; }
@@ -153,9 +162,18 @@ bool recordReceipt(const Id& id,uint64_t peer,uint32_t hash,bool human) {
   JsonDocument m;if(!readJson(path(id,".meta"),m) || m["hash"].as<uint32_t>()!=hash || parse64(m["incident"]|"")!=active)return false;
   stationDirty=true;
   String who=hex64(peer);JsonArray receipts=m["receipts"].as<JsonArray>();
-  for(JsonObject item:receipts)if(item["id"]==who){if(human && !item["human"].as<bool>()){item["human"]=true;return writeJson(path(id,".meta"),m);}return true;}
+  for(JsonObject item:receipts)if(item["id"]==who){
+    if(human && !item["human"].as<bool>()){
+      item["human"]=true;
+      if(peer==nodeId)item["callsign"]=callsign;
+      else for(const auto& p:peers)if(p.id==peer)item["callsign"]=p.call;
+      return writeJson(path(id,".meta"),m);
+    }
+    return true;
+  }
   if(receipts.size()>=MAX_PEERS)return false;
   JsonObject entry=receipts.add<JsonObject>();entry["id"]=who;entry["human"]=human;
+  if(peer==nodeId)entry["callsign"]=callsign;
   for(const auto& p:peers)if(p.id==peer)entry["callsign"]=p.call;
   JsonArray expected=m["expected"].as<JsonArray>();bool known=peer==nodeId;
   for(JsonObject e:expected)if(e["id"]==who)known=true;
@@ -206,8 +224,12 @@ bool markRead(const Id& id) {
 void onHello(const Frame& f) {
   JsonDocument d;if(deserializeJson(d,f.payload.data(),f.payload.size()))return;
   String c=d["callsign"]|"",name=d["name"]|"";if(!validCall(c)||name.length()>64)return;stationDirty=true;
-  for(auto& p:peers)if(p.id==f.origin){p.call=c;p.incident=f.incident;p.name=name;p.last=millis();return;}
-  if(peers.size()<MAX_PEERS-1)peers.push_back({f.origin,f.incident,c,name,millis()});
+  uint32_t session=d["session"]|uint32_t(0);
+  for(auto& p:peers)if(p.id==f.origin){
+    if(p.incident!=f.incident || p.session!=session || uint32_t(millis()-p.last)>=PEER_ONLINE_MS)broadcasts.discover(active && f.incident==active);
+    p.call=c;p.incident=f.incident;p.name=name;p.last=millis();p.session=session;return;
+  }
+  if(peers.size()<MAX_PEERS-1){peers.push_back({f.origin,f.incident,c,name,millis(),session});broadcasts.discover(active && f.incident==active);}
 }
 void respond(int code,const JsonDocument& d) { String s;serializeJson(d,s);server.send(code,"application/json",s); }
 void error(int code,const char* s) { JsonDocument d;d["error"]=s;respond(code,d); }
@@ -218,8 +240,8 @@ void IRAM_ATTR radioIRQ() { radioFlag=true; }
 void initRadio() {
   // Radio reconfiguration interrupts in-flight jobs; reload pending durable
   // forms rather than leaving the retry scheduler waiting for a lost TX IRQ.
-  mesh->setIncident(active);retries.clear();helloPending=true;
-  radioReady=false;radioFlag=false;transmitting=false;transmittingLast=false;
+  mesh->setIncident(active);retries.clear();humanAckRetries.clear();broadcasts.reset(millis());
+  radioReady=false;radioFlag=false;transmitting=false;transmittingLast=false;receiveActivity.reset();
   radioError=radioBegin(useBackup?backup:primary,bandwidth,spreading,coding,power);
   if(radioError!=RADIOLIB_ERR_NONE)return;
   radio.setPacketReceivedAction(radioIRQ); radioReady=radio.startReceive()==RADIOLIB_ERR_NONE;
@@ -233,7 +255,8 @@ void saveConfig() {
 void api() {
   server.on("/api/status",HTTP_GET,[]{
     refreshStationCounts();
-    JsonDocument d;d["board"]=BOARD_NAME;d["node"]=hex64(nodeId);d["callsign"]=callsign;
+    JsonDocument d;
+    d["batteryMillivolts"]=batteryReading().millivolts;d["board"]=BOARD_NAME;d["powerNote"]=BOARD_POWER_NOTE;d["node"]=hex64(nodeId);d["callsign"]=callsign;
     d["incident"]=hex64(active);d["incidentName"]=activeName;d["paused"]=paused;d["txEnabled"]=txEnabled;
     d["radioReady"]=radioReady;d["radioError"]=radioError;d["queue"]=mesh->pending();d["dropped"]=mesh->dropped;
     d["rxPackets"]=rxPackets;d["rxFrames"]=rxFrames;d["rxErrors"]=rxErrors;d["txFrames"]=txFrames;d["lastRxError"]=lastRxError;
@@ -244,7 +267,7 @@ void api() {
     d["frequency"]=useBackup?backup:primary;d["primary"]=primary;d["backup"]=backup;d["useBackup"]=useBackup;
     d["band"]=VHF?"vhf":"uhf";d["bandwidth"]=bandwidth;d["sf"]=spreading;d["cr"]=coding;d["power"]=power;
     JsonArray a=d["peers"].to<JsonArray>();
-    for(const auto& p:peers){JsonObject o=a.add<JsonObject>();o["id"]=hex64(p.id);o["callsign"]=p.call;o["incident"]=hex64(p.incident);o["name"]=p.name;o["online"]=uint32_t(millis()-p.last)<180000;}
+    for(const auto& p:peers){JsonObject o=a.add<JsonObject>();o["id"]=hex64(p.id);o["callsign"]=p.call;o["incident"]=hex64(p.incident);o["name"]=p.name;o["online"]=uint32_t(millis()-p.last)<PEER_ONLINE_MS;}
     respond(200,d);
   });
   server.on("/api/config",HTTP_POST,[]{
@@ -272,7 +295,7 @@ void api() {
     // Save incident names even after switching; message bodies remain unchanged.
     JsonDocument entry;entry["id"]=hex64(next);entry["name"]=name;
     if(!writeJson("/incidents/"+hex64(next)+".json",entry)){error(507,"Cannot save incident");return;}
-    active=next;activeName=name;mesh->setIncident(active);retries.clear();helloPending=true;stationDirty=true;saveConfig();helloAt=0;inventoryCursor=0;
+    active=next;activeName=name;mesh->setIncident(active);retries.clear();humanAckRetries.clear();broadcasts.reset(millis());stationDirty=true;saveConfig();inventoryCursor=0;
     JsonDocument out;out["id"]=hex64(active);respond(200,out);
   });
   server.on("/api/incidents",HTTP_GET,[]{
@@ -329,7 +352,7 @@ void api() {
     JsonDocument d;if(!input(d))return;String s=d["id"]|"";Id id=parseId(s);Record r;
     if(!parseHex(s,32)||!loadRecord(id,r)||r.incident!=active){error(404,"Active stored form required");return;}
     if(!recordReceipt(id,nodeId,r.hash,true)){error(507,"Cannot save acknowledgment");return;}
-    mesh->acknowledge(id,r.hash,true,millis());JsonDocument out;out["saved"]=true;respond(200,out);
+    const uint32_t now=millis();humanAckRetries.begin(id,r.hash,now,mesh->acknowledge(id,r.hash,true,now));JsonDocument out;out["saved"]=true;respond(200,out);
   });
   server.on("/api/read",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;String id=d["id"]|"";
@@ -346,12 +369,13 @@ void api() {
     if(!writeJson(path(id,".meta"),m)){error(507,"Cannot save offload record");return;}
     LittleFS.remove(path(id,".body"));
     stationDirty=true;
-    // Cancel any already-buffered body copies; durable remaining records retry later.
-    mesh->setIncident(active);retries.clear();helloPending=true;JsonDocument out;out["saved"]=true;respond(200,out);
+    // Cancel this body and stale inventories without restarting unrelated retries
+    // or announcing the unchanged incident again.
+    mesh->cancelPublish(id,true);retries.cancel(id);JsonDocument out;out["saved"]=true;respond(200,out);
   });
 }
 void setup() {
-  Serial.begin(115200);delay(500);nodeId=ESP.getEfuseMac();prefs.begin("form8",false);
+  Serial.begin(115200);delay(500);nodeId=ESP.getEfuseMac();bootSession=esp_random();prefs.begin("form8",false);
   receivedSequence=prefs.getULong("rxSequence",0);
   callsign=prefs.getString("call","");active=parse64(prefs.getString("incident",""));activeName=prefs.getString("name","");
   primary=prefs.getFloat("primary",primary);backup=prefs.getFloat("backup",backup);bandwidth=prefs.getFloat("bw",bandwidth);
@@ -389,6 +413,11 @@ void setup() {
     return saved;
   };
   mesh->hello=onHello;mesh->receipt=[](const Id& id,uint64_t p,uint32_t hash,bool human){recordReceipt(id,p,hash,human);};
+  mesh->humanAcknowledged=[](const Id& id,uint32_t hash){
+    JsonDocument m;if(!readJson(path(id,".meta"),m) || m["hash"].as<uint32_t>()!=hash)return false;
+    for(JsonObject r:m["receipts"].as<JsonArray>())if(r["id"]==hex64(nodeId) && r["human"].as<bool>())return true;
+    return false;
+  };
   boardPower();SPI.begin(RADIO_SCK,RADIO_MISO,RADIO_MOSI);initRadio();
   WiFi.mode(WIFI_AP);
   // Use the AP MAC in network byte order. The tail of getEfuseMac()'s
@@ -414,16 +443,31 @@ void setup() {
     error(404,"Not found");
   });server.begin();
 }
+void serialConsole() {
+  // Headless boards need a way to retrieve credentials after startup output.
+  static String command;static bool overflow=false;
+  for(unsigned count=0;count<32 && Serial.available();++count){
+    char c=Serial.read();if(c=='\r')continue;
+    if(c=='\n'){
+      if(!overflow && command=="wifi")Serial.printf("SSID: %s\nPassword: %s\nOpen http://192.168.4.1\n",ssid.c_str(),password.c_str());
+      else if(command.length() || overflow)Serial.println("Command: wifi (print hotspot credentials)");
+      command="";overflow=false;
+    }else if(command.length()<16 && !overflow)command+=c;
+    else overflow=true;
+  }
+}
 void loop() {
+  serialConsole();
   server.handleClient();uint32_t now=millis();
   if(radioReady && radioFlag) {
     radioFlag=false;
-    if(transmitting){++txFrames;radio.finishTransmit();transmitting=false;radio.setPacketReceivedAction(radioIRQ);radio.startReceive();
+    if(transmitting){++txFrames;radio.finishTransmit();transmitting=false;mesh->transmitted(transmittingFrame,now);radio.setPacketReceivedAction(radioIRQ);radio.startReceive();
       if(transmittingLast){retries.sent(transmittingId,now);txNext=now+ACK_LISTEN_MS;}
       else txNext=now+100+esp_random()%600;
       transmittingLast=false;
     }
     else {
+      receiveActivity.completed(now);
       uint8_t bytes[255];size_t len=radio.getPacketLength();
       if(len<=sizeof(bytes)) {
         lastRxError=radio.readData(bytes,len);
@@ -435,25 +479,41 @@ void loop() {
       radio.startReceive();
     }
   }
+  if(!radioReady || transmitting)receiveActivity.progress(false);
+  else if(uint32_t(now-rxProgressAt)>=20){rxProgressAt=now;receiveActivity.progress(radioReceivingPacket());}
+  const bool rxVisible=radioReady && !transmitting && receiveActivity.visible(now);
   bool canTransmit=radioReady && txEnabled && !paused && validCall(callsign);
-  if(uint32_t(now-displayAt)>=500){
-    displayAt=now;refreshStationCounts();
-    showStationStatus(ssid,password,WiFi.softAPgetStationNum(),outgoingMessages,unreadMessages,newestSender);
+  updateBattery(now);
+  if(uint32_t(now-displayAt)>=500 || (rxVisible!=displayedRxActivity && uint32_t(now-displayAt)>=100)){
+    displayAt=now;displayedRxActivity=rxVisible;refreshStationCounts();
+    StationScreen station;station.callsign=callsign;station.incident=activeName;
+    station.frequency=useBackup?backup:primary;station.batteryMv=batteryReading().millivolts;
+    for(const auto& peer:peers)if(active && peer.incident==active && uint32_t(now-peer.last)<PEER_ONLINE_MS)++station.online;
+    station.radioState=!radioReady?"RADIO ERROR":transmitting?"TX":rxVisible?"RXING":paused?"RF PAUSED":!txEnabled?"TX OFF":!validCall(callsign)?"SET CALLSIGN":"RF ON";
+    showStationStatus(ssid,password,WiFi.softAPgetStationNum(),outgoingMessages,unreadMessages,newestSender,station);
   }
-  if(canTransmit && (helloPending || uint32_t(now-helloAt)>30000)){
-    JsonDocument d;d["callsign"]=callsign;d["name"]=activeName;String s;serializeJson(d,s);
+  if(canTransmit && broadcasts.helloDue(now)){
+    JsonDocument d;d["callsign"]=callsign;d["name"]=activeName;d["session"]=bootSession;String s;serializeJson(d,s);
     if(s.length()>CHUNK){d["name"]=activeName.substring(0,32);s="";serializeJson(d,s);}
-    if(mesh->announce(s.c_str(),now)){helloAt=now;helloPending=false;}
+    if(mesh->announce(s.c_str(),now))broadcasts.helloQueued(now,esp_random());else broadcasts.helloFailed(now);
   }
-  if(canTransmit && active && uint32_t(now-inventoryAt)>15000){
-    inventoryAt=now;auto ids=allIds(true,true);std::vector<InventoryEntry> page;
-    for(size_t count=0;count<8&&!ids.empty();++count){Id id=ids[inventoryCursor++%ids.size()];JsonDocument m;if(readJson(path(id,".meta"),m))page.push_back({id,m["hash"].as<uint32_t>()});if(inventoryCursor%ids.size()==0)break;}
-    if(!page.empty())mesh->inventory(page,now);
-    // Human acknowledgment is retained in metadata and periodically re-advertised.
-    for(const auto& entry:page){JsonDocument m;if(readJson(path(entry.id,".meta"),m))for(JsonObject r:m["receipts"].as<JsonArray>())if(r["id"]==hex64(nodeId)&&r["human"].as<bool>())mesh->acknowledge(entry.id,entry.hash,true,now);}
+  if(canTransmit && active && broadcasts.inventoryDue(now)){
+    auto ids=allIds(true,true);
+    if(broadcasts.beginInventory(now,ids.size()))inventoryCursor=0;
+    const bool repairing=broadcasts.repairing();
+    std::vector<InventoryEntry> page;size_t cursor=inventoryCursor;
+    for(size_t count=0;count<8&&!ids.empty();++count){Id id=ids[cursor++%ids.size()];JsonDocument m;if(readJson(path(id,".meta"),m))page.push_back({id,m["hash"].as<uint32_t>()});if(cursor%ids.size()==0)break;}
+    if(page.empty() || mesh->inventory(page,now)){
+      inventoryCursor=cursor;broadcasts.inventoryQueued(now,esp_random());
+      for(const auto& entry:page){
+        if(repairing || !humanAckRetries.recoveryDue(entry.id,now))continue;
+        JsonDocument m;if(readJson(path(entry.id,".meta"),m))for(JsonObject r:m["receipts"].as<JsonArray>())
+          if(r["id"]==hex64(nodeId)&&r["human"].as<bool>() && mesh->acknowledge(entry.id,entry.hash,true,now))humanAckRetries.recovered(entry.id,entry.hash,now);
+      }
+    }else broadcasts.inventoryFailed(now);
   }
   if(canTransmit && active && uint32_t(now-retryAt)>=1000){
-    retryAt=now;auto ids=allIds(true,true);
+    retryAt=now;humanAckRetries.service(now,[](const Id& id,uint32_t hash){return mesh->acknowledge(id,hash,true,millis());});auto ids=allIds(true,true);
     for(const auto& id:ids){JsonDocument m;
       if(!readJson(path(id,".meta"),m)||parse64(m["origin"]|"")!=nodeId)continue;
       if(!deliveryPending(m)){retries.cancel(id);mesh->cancelPublish(id);continue;}
@@ -462,7 +522,7 @@ void loop() {
   }
   // Leave receive mode running while idle. Restarting RX on every loop can
   // abort packets before their receive-complete interrupt is raised.
-  if(canTransmit && !transmitting && mesh->ready(now) && int32_t(now-txNext)>=0){
+  if(canTransmit && !transmitting && !receiveActivity.receiving() && mesh->ready(now) && int32_t(now-txNext)>=0){
     if(mesh->pending()){
       radio.standby();int16_t scan=radio.scanChannel();
       if(scan!=RADIOLIB_CHANNEL_FREE){radioFlag=false;radio.setPacketReceivedAction(radioIRQ);radio.startReceive();txNext=now+500+esp_random()%2500;delay(1);return;}
@@ -471,8 +531,12 @@ void loop() {
     Frame f;if(mesh->next(now,f)){
       auto bytes=encode(f);radio.standby();radio.setPacketSentAction(radioIRQ);radioFlag=false;
       int16_t result=radio.startTransmit(bytes.data(),bytes.size());
-      if(result==RADIOLIB_ERR_NONE){transmitting=true;transmittingId=f.id;transmittingLast=f.kind==Kind::Data && f.origin==nodeId && f.part+1==f.parts;}
-      else {radioError=result;mesh->queueFrame(f,now,2000);radio.setPacketReceivedAction(radioIRQ);radio.startReceive();txNext=now+2000;}
+      if(result==RADIOLIB_ERR_NONE){transmitting=true;transmittingFrame=f;transmittingId=f.id;transmittingLast=f.kind==Kind::Data && f.origin==nodeId && f.part+1==f.parts;}
+      else {
+        radioError=result;
+        if(!mesh->queueFrame(f,now,CONTROL_QUEUE_RETRY_MS) && f.kind==Kind::Data && f.origin==nodeId){retries.cancel(f.id);mesh->cancelPublish(f.id,true);}
+        radio.setPacketReceivedAction(radioIRQ);radio.startReceive();txNext=now+CONTROL_QUEUE_RETRY_MS;
+      }
     }else{radio.setPacketReceivedAction(radioIRQ);radio.startReceive();}
   }
   delay(1);

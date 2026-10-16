@@ -1,21 +1,56 @@
-import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus} from './model.js';
+import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments, numberUntitledDrafts, draftLabel} from './model.js';
 const $ = selector => document.querySelector(selector);
 let status = null, offset = 0, total = 0, draftTimer, locationData = null, settingsLoaded = false, boundIncident = '';
 let messageNeighbors = {previous:null,next:null};
 let selectedForm = null, polling = null, settingsDirty = false, displayedRecord = '';
 const form = $('#form8');
 const database = new Promise((resolve, reject) => {
-  const req = indexedDB.open('form8-client', 1);
-  req.onupgradeneeded = () => { for (const name of ['drafts','archives']) req.result.createObjectStore(name, {keyPath:'id'}); };
-  req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error);
+  const req = indexedDB.open('form8-client', 2);
+  req.onupgradeneeded = () => { for (const name of ['drafts','archives','settings'])if(!req.result.objectStoreNames.contains(name))req.result.createObjectStore(name, {keyPath:'id'}); };
+  req.onsuccess = () => {req.result.onversionchange=()=>req.result.close();resolve(req.result);}; req.onerror = () => reject(req.error);
+  req.onblocked = () => reject(new Error('Close other Form8 tabs, then reopen this page to update local draft storage.'));
 });
 async function db(store, action, value) {
   const databaseHandle = await database;
+  if(store==='drafts' && ['getAll','put','delete'].includes(action))return draftRecords(databaseHandle,action,value);
   return new Promise((resolve, reject) => {
     const transaction = databaseHandle.transaction(store, action === 'get' || action === 'getAll' ? 'readonly' : 'readwrite');
     const request = transaction.objectStore(store)[action](value);
     transaction.oncomplete = () => resolve(request.result);
     transaction.onerror = () => reject(transaction.error); transaction.onabort = () => reject(transaction.error || new Error('Local save aborted'));
+  });
+}
+function draftRecords(databaseHandle,action,value) {
+  // Number assignment, draft updates, and counter resets share one transaction
+  // so autosave and other browser tabs cannot allocate the same number.
+  return new Promise((resolve,reject)=>{
+    const transaction=databaseHandle.transaction(['drafts','settings'],'readwrite');
+    const drafts=transaction.objectStore('drafts'),settings=transaction.objectStore('settings');
+    const records=drafts.getAll(),counter=settings.get('untitled-counter');
+    let ready=0,result;
+    const update=()=>{
+      if(++ready<2)return;
+      try {
+        const original=records.result,savedById=new Map(original.map(draft=>[draft.id,draft]));
+        let current=original;
+        if(action==='put'){
+          const previous=savedById.get(value.id);
+          current=original.filter(draft=>draft.id!==value.id);
+          current.push({...value,untitledNumber:previous?.untitledNumber});
+        }else if(action==='delete')current=original.filter(draft=>draft.id!==value);
+        result=numberUntitledDrafts(current,counter.result?.value||0);
+        if(action==='delete')drafts.delete(value);
+        for(const draft of result.drafts){
+          const previous=savedById.get(draft.id);
+          if((action==='put' && draft.id===value.id) || !previous || previous.untitledNumber!==draft.untitledNumber)drafts.put(draft);
+        }
+        if(counter.result?.value!==result.counter)settings.put({id:'untitled-counter',value:result.counter});
+      }catch(error){transaction.abort();reject(error);}
+    };
+    records.onsuccess=update;counter.onsuccess=update;
+    transaction.oncomplete=()=>resolve(action==='getAll'?result.drafts:action==='put'?value.id:undefined);
+    transaction.onerror=()=>reject(transaction.error);
+    transaction.onabort=()=>reject(transaction.error||new Error('Draft save aborted'));
   });
 }
 async function api(path, body) {
@@ -55,7 +90,19 @@ async function saveDraft() {
 }
 async function draftList() {
   const list=$('#draft-list');list.replaceChildren();
-  for(const draft of (await db('drafts','getAll')).sort((a,b)=>b.savedAt-a.savedAt))list.append(button(draft.form.subject||'Untitled draft',async()=>{await saveDraft();fill(draft.form);}));
+  for(const draft of (await db('drafts','getAll')).sort((a,b)=>b.savedAt-a.savedAt)){
+    const subject=draftLabel(draft),item=text('div','','draft-item');
+    const remove=button('Delete',()=>deleteDraft(draft.id,subject),'draft-delete');
+    remove.setAttribute('aria-label',`Delete draft: ${subject}`);
+    item.append(button(subject,async()=>{await saveDraft();fill(draft.form);}),remove);list.append(item);
+  }
+}
+async function deleteDraft(id,subject) {
+  if(!confirm(`Delete draft “${subject}” from this device? This cannot be undone.`))return;
+  if(form.elements.clientToken.value===id)clearTimeout(draftTimer);
+  await db('drafts','delete',id);
+  if(form.elements.clientToken.value===id)fill();
+  await draftList();feedback('Draft deleted from this device.');
 }
 function fill(d={}) {
   form.reset();locationData=d.location||null;boundIncident=d.boundIncident||'';
@@ -64,7 +111,7 @@ function fill(d={}) {
   form.elements.recipient.disabled=form.elements.addressMode.value==='broadcast';
   if(d.location){form.elements.lat.value=d.location.lat;form.elements.lon.value=d.location.lon;}
   if(!d.date){const now=new Date();form.elements.date.value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;form.elements.time.value=now.toTimeString().slice(0,5);}
-  counts();$('#draft-state').textContent='Saved on this device';
+  counts();$('#draft-state').textContent=d.clientToken?'Saved on this device':'New draft · not saved yet';
 }
 function counts() {
   $('#body-count').textContent=`${utf8(form.elements.message.value).length} / 2800 bytes`;
@@ -129,7 +176,7 @@ async function refreshScreen() {
     $('#queue').textContent=`${next.queue} queue items`;
     $('#warning').hidden=!next.storageWarning && next.fsReady && next.radioReady;
     $('#warning').textContent=!next.fsReady?'Radio storage unavailable. Upload the filesystem image for first setup; do not overwrite an existing incident filesystem.':!next.radioReady?`Radio initialization failed (${next.radioError}).`: 'Storage is running low. Archive older delivered forms or explicitly discard selected bodies.';
-    $('#board-info').textContent=`${next.board} · ${next.band.toUpperCase()} profile · ${next.clockSource}`;
+    $('#board-info').textContent=`${next.board} · ${next.band.toUpperCase()} profile · ${next.clockSource}${next.powerNote?` · ${next.powerNote}`:''}`;
     if(!settingsLoaded || !settingsDirty){
       const f=$('#radio-settings');for(const key of ['callsign','primary','backup','bandwidth','sf','cr','power'])f.elements[key].value=String(next[key]);
       for(const key of ['useBackup','txEnabled','paused'])f.elements[key].checked=next[key];
@@ -151,7 +198,6 @@ function deliveryIndicator(m) {
   const delivery=deliveryStatus(m,status?.peers||[],status?.node);
   const block=text('div','','delivery '+(delivery.complete?'acked':'pending'));
   block.append(text('strong',delivery.label));
-  if(delivery.human.length)block.append(text('p',`Human acknowledged by ${delivery.human.join(', ')}`));
   if(delivery.pending.length)block.append(text('p',`Pending: ${delivery.pending.join(', ')}`));
   else if(!delivery.complete)block.append(text('p','No remote station has acknowledged yet.'));
   return block;
@@ -159,6 +205,13 @@ function deliveryIndicator(m) {
 function renderReceipts(m) {
   const container=$('#delivery-detail');if(!container)return;
   container.replaceChildren(deliveryIndicator(m));
+  const acknowledged=manualAcknowledgments(m,status?.peers||[],status?.node,status?.callsign);
+  container.append(text('h3','Manually acknowledged by'));
+  if(acknowledged.length){
+    const list=text('ul','','manual-ack-list');
+    for(const callsign of acknowledged)list.append(text('li',callsign));
+    container.append(list);
+  }else container.append(text('p','No manual acknowledgments yet.','muted'));
   const table=document.createElement('table'),head=document.createElement('tr');for(const title of ['Station','Receipt'])head.append(text('th',title));table.append(head);
   for(const r of receiptRows(m,status?.peers||[],status?.node)){const tr=document.createElement('tr');tr.append(text('td',r.callsign),text('td',r.status));table.append(tr);}
   container.append(table);

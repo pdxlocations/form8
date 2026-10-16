@@ -1,0 +1,8 @@
+[
+  {"environment":"heltec-v3","board":"Heltec WiFi LoRa 32 V3","radio":"SX1262","flashMiB":8,"partitions":"partitions/heltec.csv","oled":true,"battery":true},
+  {"environment":"heltec-v4","board":"Heltec WiFi LoRa 32 V4.2 OLED (GC1109 FEM)","radio":"SX1262","flashMiB":16,"partitions":"partitions/bpf.csv","oled":true,"battery":true},
+  {"environment":"heltec-v4-3","board":"Heltec WiFi LoRa 32 V4.3 OLED (KCT8103L FEM)","radio":"SX1262","flashMiB":16,"partitions":"partitions/bpf.csv","oled":true,"battery":true},
+  {"environment":"seeed-xiao-s3","board":"Seeed XIAO ESP32S3 + Wio-SX1262 B2B module","radio":"SX1262","flashMiB":8,"partitions":"partitions/heltec.csv","oled":false,"battery":false},
+  {"environment":"tlora-t3-s3","board":"LILYGO T3-S3 868/915 MHz SX1262","radio":"SX1262","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true},
+  {"environment":"tlora-t3-s3-sx1276","board":"LILYGO T3-S3 868/915 MHz SX1276","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true}
+]

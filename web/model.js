@@ -1,5 +1,24 @@
 export const priorities = ['Routine', 'Health & Welfare', 'Priority', 'Emergency'];
 export const utf8 = value => new TextEncoder().encode(value);
+export function numberUntitledDrafts(drafts,counter=0) {
+  const untitled=drafts.filter(draft=>!draft.form.subject?.trim());
+  let next=untitled.length && Number.isSafeInteger(counter) && counter>0?counter:0;
+  for(const draft of untitled)if(Number.isSafeInteger(draft.untitledNumber) && draft.untitledNumber>0)next=Math.max(next,draft.untitledNumber);
+  const numbers=new Map(),used=new Set();
+  for(const draft of [...untitled].sort((a,b)=>a.savedAt-b.savedAt || a.id.localeCompare(b.id))){
+    let number=draft.untitledNumber;
+    if(!Number.isSafeInteger(number) || number<1 || used.has(number))number=++next;
+    used.add(number);numbers.set(draft.id,number);
+  }
+  return {counter:next,drafts:drafts.map(draft=>{
+    const result={...draft};delete result.untitledNumber;
+    if(numbers.has(draft.id))result.untitledNumber=numbers.get(draft.id);
+    return result;
+  })};
+}
+export function draftLabel(draft) {
+  return draft.form.subject?.trim()?draft.form.subject:`Untitled draft-${draft.untitledNumber}`;
+}
 export function crc32(value) {
   let c = 0xffffffff;
   for (const byte of typeof value === 'string' ? utf8(value) : value) {
@@ -44,6 +63,16 @@ export function deliveryStatus(meta, peers, self) {
   if(directed && !targets.length)pending.push(meta.recipient);
   const label=radio.length?`Radio ACK by ${radio.join(', ')}`:'Awaiting radio ACK';
   return {radio,human,pending,complete,label};
+}
+export function manualAcknowledgments(meta, peers, self, callsign) {
+  const stations=new Map();
+  for(const receipt of meta.receipts||[])if(receipt.human){
+    const name=receipt.callsign || peers.find(peer=>peer.id===receipt.id)?.callsign ||
+      (meta.expected||[]).find(station=>station.id===receipt.id)?.callsign ||
+      (receipt.id===self?callsign:'') || receipt.id;
+    stations.set(receipt.id,name);
+  }
+  return [...stations.values()];
 }
 export function verifyArchive(record) {
   if (typeof record.body !== 'string' || crc32(record.body) !== record.meta?.hash) throw new Error('Archive verification failed; radio copy retained.');

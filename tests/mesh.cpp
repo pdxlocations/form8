@@ -1,6 +1,7 @@
 #include <Mesh.h>
 #include <RecordName.h>
 #include <DeliveryRetry.h>
+#include <TrafficSchedule.h>
 #include <cassert>
 #include <iostream>
 #include <map>
@@ -19,15 +20,56 @@ struct Node {
     mesh.receipt=[this](const Id&,uint64_t who,uint32_t,bool human){receipts[who]=human;};
   }
 };
-void exchange(Node& a,Node& b,uint32_t now){Frame f;while(a.mesh.next(now,f)){auto bytes=encode(f);b.mesh.receive(bytes.data(),bytes.size(),now,0);}}
+void exchange(Node& a,Node& b,uint32_t now){Frame f;while(a.mesh.next(now,f)){auto bytes=encode(f);b.mesh.receive(bytes.data(),bytes.size(),now,0);a.mesh.transmitted(f,now);}}
 int main(){
+  // Quiet background schedules, bounded discovery responses, and join repair.
+  BroadcastSchedule background;background.reset(0);
+  assert(background.helloDue(0));background.helloQueued(0,0);
+  assert(!background.helloDue(119999) && background.helloDue(120000));
+  assert(!background.inventoryDue(299999) && background.inventoryDue(300000));
+  background.inventoryQueued(300000,60000);
+  assert(!background.inventoryDue(659999) && background.inventoryDue(660000));
+  BroadcastSchedule joining;joining.reset(0);joining.helloQueued(0,0);joining.discover(true);
+  assert(!joining.helloDue(29999) && joining.helloDue(30000));
+  assert(joining.inventoryDue(0) && joining.beginInventory(0,17));
+  joining.inventoryQueued(0,0);joining.discover(true); // Does not restart an active pass.
+  assert(!joining.inventoryDue(9999) && joining.inventoryDue(10000));
+  assert(!joining.beginInventory(10000,17));joining.inventoryQueued(10000,0);
+  assert(joining.inventoryDue(20000));joining.inventoryQueued(20000,0);assert(!joining.repairing());
+  joining.discover(true);assert(!joining.inventoryDue(119999) && joining.inventoryDue(120000));
+  assert(joining.beginInventory(120000,8));joining.inventoryFailed(120000);
+  assert(!joining.inventoryDue(121999) && joining.inventoryDue(122000));
+  BroadcastSchedule wrapped;const uint32_t wrapStart=UINT32_MAX-1000;
+  wrapped.reset(wrapStart);wrapped.helloQueued(wrapStart,0);
+  assert(!wrapped.helloDue(wrapStart+HELLO_INTERVAL_MS-1) && wrapped.helloDue(wrapStart+HELLO_INTERVAL_MS));
+  BroadcastSchedule fullQueue;fullQueue.reset(0);fullQueue.helloFailed(0);
+  assert(!fullQueue.helloDue(1999) && fullQueue.helloDue(2000));
+  // An idle empty station emits only its low-rate hellos, not empty inventories.
+  BroadcastSchedule quiet;quiet.reset(0);unsigned hellos=0;
+  for(uint32_t now=0;now<3600000;now+=1000){
+    if(quiet.helloDue(now)){++hellos;quiet.helloQueued(now,0);}
+    if(quiet.inventoryDue(now)){quiet.beginInventory(now,0);quiet.inventoryQueued(now,0);}
+  }
+  assert(hellos==30);
+  HumanAckRetries humans;const Id humanId=id(91);unsigned humanSends=0;
+  auto sendHuman=[&](const Id& key,uint32_t hash){assert(key==humanId && hash==123);++humanSends;return true;};
+  humans.begin(humanId,123,0,true);humans.service(14999,sendHuman);assert(humanSends==0);
+  humans.service(15000,sendHuman);humans.service(59999,sendHuman);assert(humanSends==1);
+  humans.service(60000,sendHuman);humans.service(100000,sendHuman);assert(humanSends==2);
+  assert(!humans.recoveryDue(humanId,1859999) && humans.recoveryDue(humanId,1860000));
+  humans.recovered(humanId,123,1860000);assert(!humans.recoveryDue(humanId,1860001));
+  humans.clear();humans.begin(humanId,123,0,false);unsigned failedAttempts=0;
+  humans.service(0,[&](const Id&,uint32_t){++failedAttempts;return false;});
+  humans.service(1999,[&](const Id&,uint32_t){++failedAttempts;return false;});assert(failedAttempts==1);
+  humans.service(2000,sendHuman);assert(humanSends==3);
   DeliveryRetry retry;
   const Id retryId=id(90);uint32_t completedAt=100;
   assert(retry.due(retryId,completedAt));
-  for(unsigned attempt=1;attempt<=5;++attempt){
+  for(unsigned attempt=1;attempt<=8;++attempt){
     retry.queued(retryId);assert(!retry.due(retryId,completedAt+100000));
     retry.sent(retryId,completedAt);
-    uint32_t delay=attempt<4?ACK_LISTEN_MS:RETRY_INTERVAL_MS;
+    const uint32_t expected[]={3000,3000,3000,60000,300000,900000,900000,900000};
+    uint32_t delay=expected[attempt-1];
     assert(!retry.due(retryId,completedAt+delay-1));
     assert(retry.due(retryId,completedAt+delay));completedAt+=delay+500;
   }
@@ -69,6 +111,14 @@ int main(){
   canceling.mesh.cancelPublish(original.id);
   assert(canceling.mesh.next(0,f) && f.kind==Kind::Receipt);
   assert(!canceling.mesh.next(0,f));
+  // Delivery receipts stop unsolicited retries, but must preserve requested repairs.
+  Node repairKept(16);assert(repairKept.mesh.publish(original,true));
+  repairKept.mesh.cancelPublish(original.id);assert(repairKept.mesh.pending()==1);
+  repairKept.mesh.cancelPublish(original.id,true);assert(repairKept.mesh.pending()==0);
+  Node offloading(15);offloading.mesh.inventory({{original.id,original.hash}},0);
+  auto kept=record(7);assert(offloading.mesh.publish(kept));
+  offloading.mesh.cancelPublish(original.id,true);assert(offloading.mesh.pending()==1);
+  assert(offloading.mesh.next(0,f) && f.id==kept.id && f.kind==Kind::Data);
   // Persist failure must never generate a receipt from that radio.
   Node failed(4);failed.fail=true;Node writer(1);writer.mesh.publish(original);exchange(writer,failed,100);
   bool falseReceipt=false;while(failed.mesh.next(100,f))if(f.kind==Kind::Receipt && f.origin==4)falseReceipt=true;assert(!falseReceipt);
@@ -76,6 +126,22 @@ int main(){
   Node holder(1),late(5);holder.records[original.id]=original;holder.mesh.inventory({{original.id,original.hash}},200);
   for(uint32_t now=200;now<220;++now){exchange(holder,late,now);exchange(late,holder,now);}
   assert(late.records.count(original.id));
+  // Repair human ACKs follow the complete body so a late node can save them.
+  Node ackHolder(12),ackLate(13);ackHolder.records[original.id]=original;
+  ackHolder.mesh.humanAcknowledged=[&](const Id& key,uint32_t hash){return key==original.id && hash==original.hash;};
+  bool repairedHuman=false;ackLate.mesh.receipt=[&](const Id& key,uint64_t who,uint32_t,bool human){
+    if(human && who==12){assert(ackLate.records.count(key));repairedHuman=true;}
+  };
+  ackHolder.mesh.inventory({{original.id,original.hash}},230);exchange(ackHolder,ackLate,230);
+  exchange(ackLate,ackHolder,230);exchange(ackHolder,ackLate,230);assert(repairedHuman);
+  Node delayedRepair(16);delayedRepair.mesh.humanAcknowledged=[](const Id&,uint32_t){return true;};
+  assert(delayedRepair.mesh.publish(original,true));Frame repairLast;
+  while(delayedRepair.mesh.next(0,f)){assert(f.kind==Kind::Data);repairLast=f;}
+  assert(repairLast.repairReply && delayedRepair.mesh.pending()==0);
+  auto repairWire=encode(repairLast);Frame repairDecoded;assert(decode(repairWire.data(),repairWire.size(),repairDecoded) && !repairDecoded.repairReply);
+  assert(delayedRepair.mesh.queueFrame(repairLast,0,2000)); // Simulate a failed last-fragment start.
+  assert(!delayedRepair.mesh.next(1999,f));assert(delayedRepair.mesh.next(2000,f) && f.kind==Kind::Data);
+  delayedRepair.mesh.transmitted(f,2000);assert(delayedRepair.mesh.next(2000,f) && f.kind==Kind::HumanAck);
   // A different incident does not consume or relay form bodies.
   Node other(6);other.mesh.setIncident(99);Node sender(1);sender.mesh.publish(original);exchange(sender,other,300);assert(other.records.empty() && other.mesh.pending()==0);
   // Incident advertisements reach and relay through nodes in other incidents,
@@ -100,11 +166,20 @@ int main(){
   // Emergency goes first; the oldest routine job still progresses within eight selections.
   Node priorities(1);priorities.mesh.publish(record(1,0,4096));priorities.mesh.publish(record(2,3,4096));
   assert(priorities.mesh.next(1,f)&&f.priority==3);bool routine=false;for(int i=0;i<7;++i){assert(priorities.mesh.next(1,f));routine|=f.priority==0;}assert(routine);
+  // Repeated local control events do not duplicate still-unsent packets.
+  Node controls(11);assert(controls.mesh.acknowledge(id(10),1,false,0));
+  assert(controls.mesh.acknowledge(id(10),1,false,1) && controls.mesh.pending()==1);
+  assert(controls.mesh.acknowledge(id(10),1,true,1) && controls.mesh.pending()==2);
+  assert(controls.mesh.next(2,f));assert(controls.mesh.acknowledge(id(10),1,false,3) && controls.mesh.pending()==2);
+  Node duplicateControl(14);assert(duplicateControl.mesh.announce(announcement,0));
+  assert(duplicateControl.mesh.announce(announcement,1) && duplicateControl.mesh.pending()==1);
+  duplicateControl.mesh.inventory({{original.id,original.hash}},0);duplicateControl.mesh.inventory({{original.id,original.hash}},1);
+  assert(duplicateControl.mesh.pending()==2);
   // Bounded queues and reassembly slots, timeout and wraparound handling.
-  Node bounded(1);for(size_t i=0;i<MAX_QUEUE;++i)assert(bounded.mesh.queueFrame(bounded.mesh.control(Kind::Request,id(1),1),0));assert(!bounded.mesh.queueFrame(bounded.mesh.control(Kind::Request,id(1),1),0));
+  Node bounded(1);for(size_t i=0;i<MAX_QUEUE;++i)assert(bounded.mesh.queueFrame(bounded.mesh.control(Kind::Request,id(i+1),1),0));assert(!bounded.mesh.queueFrame(bounded.mesh.control(Kind::Request,id(99),1),0));
   // A failed advertisement enqueue must be reported so firmware retries it.
   assert(!bounded.mesh.announce(announcement,0));assert(bounded.mesh.next(0,f));assert(bounded.mesh.announce(announcement,0));
   Node switching(1);switching.mesh.publish(original);switching.mesh.setIncident(99);assert(switching.mesh.pending()==0);
   Reassembler expired;assert(!expired.accept(fragments[0],0,result));for(size_t i=1;i<fragments.size();++i)assert(!expired.accept(fragments[i],120001,result));
-  std::cout<<"Mesh tests passed: codec, corruption, bounds, reassembly, multi-hop receipts, durable-save failure, partition repair, incident isolation, fairness, switching.\n";
+  std::cout<<"Mesh tests passed: codec, corruption, bounds, reassembly, multi-hop receipts, durable-save failure, partition repair, incident isolation, fairness, switching, quiet schedules, ACK repeats, backoff.\n";
 }
