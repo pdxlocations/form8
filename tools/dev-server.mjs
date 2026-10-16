@@ -2,13 +2,14 @@ import http from 'node:http';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {randomBytes} from 'node:crypto';
-import {crc32,validateForm} from '../web/model.js';
+import {crc32,validateForm,validateChatText,chatEmojis,chatTimeline} from '../web/model.js';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const port=Number(process.env.PORT||8848);
-const stateFile=`${root}/tmp/demo.local.json`;
+const stateFile=process.env.FORM8_DEMO_STATE||`${root}/tmp/demo.local.json`;
 const fresh={config:{callsign:'DEMO-1',primary:919.5,backup:0,bandwidth:500,sf:9,cr:8,power:14,useBackup:false,txEnabled:false,paused:false},incident:'0000000000000000',incidentName:'',incidents:[],forms:{}};
 await mkdir(`${root}/tmp`,{recursive:true});
 let state;try{state=JSON.parse(await readFile(stateFile,'utf8'));}catch{state=fresh;}
+state.chats??={};state.chatSequence??=0;
 async function save(){await writeFile(`${stateFile}.tmp`,JSON.stringify(state));await rename(`${stateFile}.tmp`,stateFile);}
 function reply(res,code,data){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}
 const files=new Set(['index.html','app.js','model.js','style.css','sw.js','manifest.webmanifest','icon.svg']);
@@ -27,6 +28,30 @@ http.createServer(async(req,res)=>{
       case 'POST /api/config':state.config={...state.config,...d};output.radioReady=true;break;
       case 'POST /api/time':break;
       case 'GET /api/incidents':output={incidents:state.incidents};break;
+      case 'GET /api/chat':output={incident:state.incident,messages:chatTimeline(Object.values(state.chats).filter(event=>event.meta.incident===state.incident))};break;
+      case 'POST /api/chat':{
+        if(state.incident==='0000000000000000'||d.incident!==state.incident)throw Error('Join the matching incident first');
+        const id=d.clientToken;if(!/^[a-f0-9]{32}$/.test(id)||/^0+$/.test(id))throw Error('Invalid chat token');
+        if(state.forms[id])throw Error('Token belongs to a form');
+        if(state.chats[id]){
+          if(state.chats[id].meta.incident!==state.incident)throw Error('Token belongs to another incident');
+          output={id,existing:true};break;
+        }
+        const body={type:d.type,sender:state.config.callsign,sentAt:Math.floor(Date.now()/1000)};
+        if(d.type==='chat-message'){
+          body.text=validateChatText(d.text);
+          if(d.parent){if(!/^[a-f0-9]{32}$/.test(d.parent)||/^0+$/.test(d.parent))throw Error('Invalid reply ID');body.parent=d.parent;}
+        }else if(d.type==='chat-reaction'){
+          const target=state.chats[d.target];if(!target||target.meta.incident!==state.incident||target.body.type!=='chat-message')throw Error('Reaction target unavailable');
+          if(!chatEmojis.includes(d.emoji)||typeof d.active!=='boolean')throw Error('Invalid reaction');
+          Object.assign(body,{target:d.target,emoji:d.emoji,active:d.active,sequence:++state.chatSequence});
+        }else throw Error('Invalid chat type');
+        const order=Math.max(0,...Object.values(state.chats).map(event=>event.meta.order))+1;
+        state.chats[id]={body,meta:{id,incident:state.incident,origin:'0000000000000001',order,attempts:0,retrying:false,receipts:[]}};
+        const history=Object.values(state.chats).sort((a,b)=>a.meta.order-b.meta.order);
+        for(const event of history.slice(0,Math.max(0,history.length-96)))delete state.chats[event.meta.id];
+        output={id,saved:true};code=201;break;
+      }
       case 'POST /api/incident':{
         state.incident=d.id||randomBytes(8).toString('hex');state.incidentName=d.name;
         if(!state.incidents.some(i=>i.id===state.incident))state.incidents.push({id:state.incident,name:d.name});output={id:state.incident};break;
@@ -42,6 +67,7 @@ http.createServer(async(req,res)=>{
         if(state.incident==='0000000000000000')throw Error('Join an incident first');
         if(d.boundIncident && d.boundIncident!==state.incident)throw Error('Draft belongs to another incident');
         const id=d.clientToken;if(!/^[a-f0-9]{32}$/.test(id))throw Error('Invalid submission token');
+        if(state.chats[id])throw Error('Token belongs to chat');
         if(!state.forms[id]){
           delete d.clientToken;validateForm(d);d.sender=state.config.callsign;d.incident=state.incident;d.incidentName=state.incidentName;d.clockSource='phone/laptop';d.sentAt=Math.floor(Date.now()/1000);
           const body=JSON.stringify(d);state.forms[id]={body,meta:{id,incident:state.incident,origin:'0000000000000001',hash:crc32(body),priority:d.priority,state:'stored',recipient:d.recipient,subject:d.subject,sender:d.sender,expected:[],receipts:[{id:'0000000000000001',human:false}]}};

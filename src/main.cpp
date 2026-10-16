@@ -9,6 +9,7 @@
 #include <RecordName.h>
 #include <DeliveryRetry.h>
 #include <TrafficSchedule.h>
+#include <Chat.h>
 #include <WebAssets.h>
 #include <Board.h>
 #include <Display.h>
@@ -42,6 +43,7 @@ uint32_t rxPackets=0, rxFrames=0, rxErrors=0, txFrames=0;
 int16_t lastRxError=0;
 size_t inventoryCursor=0;
 DeliveryRetry retries;
+ChatRetries chatRetries;
 Id transmittingId{};
 Frame transmittingFrame;
 bool transmittingLast=false;
@@ -236,11 +238,12 @@ void error(int code,const char* s) { JsonDocument d;d["error"]=s;respond(code,d)
 bool input(JsonDocument& d) {
   if(server.arg("plain").length()>8192 || deserializeJson(d,server.arg("plain"))){error(400,"Invalid or oversized JSON");return false;}return true;
 }
+#include <ChatStore.h>
 void IRAM_ATTR radioIRQ() { radioFlag=true; }
 void initRadio() {
   // Radio reconfiguration interrupts in-flight jobs; reload pending durable
   // forms rather than leaving the retry scheduler waiting for a lost TX IRQ.
-  mesh->setIncident(active);retries.clear();humanAckRetries.clear();broadcasts.reset(millis());
+  mesh->setIncident(active);retries.clear();humanAckRetries.clear();chatRetries.interrupted(millis());broadcasts.reset(millis());
   radioReady=false;radioFlag=false;transmitting=false;transmittingLast=false;receiveActivity.reset();
   radioError=radioBegin(useBackup?backup:primary,bandwidth,spreading,coding,power);
   if(radioError!=RADIOLIB_ERR_NONE)return;
@@ -253,12 +256,13 @@ void saveConfig() {
   prefs.putBool("alternate",useBackup);prefs.putBool("tx",txEnabled);prefs.putBool("paused",paused);
 }
 void api() {
+  chatApi();
   server.on("/api/status",HTTP_GET,[]{
     refreshStationCounts();
     JsonDocument d;
     d["batteryMillivolts"]=batteryReading().millivolts;d["board"]=BOARD_NAME;d["powerNote"]=BOARD_POWER_NOTE;d["node"]=hex64(nodeId);d["callsign"]=callsign;
     d["incident"]=hex64(active);d["incidentName"]=activeName;d["paused"]=paused;d["txEnabled"]=txEnabled;
-    d["radioReady"]=radioReady;d["radioError"]=radioError;d["queue"]=mesh->pending();d["dropped"]=mesh->dropped;
+    d["radioReady"]=radioReady;d["radioError"]=radioError;d["queue"]=mesh->pending(false);d["dropped"]=mesh->dropped;
     d["rxPackets"]=rxPackets;d["rxFrames"]=rxFrames;d["rxErrors"]=rxErrors;d["txFrames"]=txFrames;d["lastRxError"]=lastRxError;
     d["outgoingMessages"]=outgoingMessages;d["unreadMessages"]=unreadMessages;d["newestSender"]=newestSender;d["connectedClients"]=WiFi.softAPgetStationNum();
     d["clockSource"]=clockSource;d["freeHeap"]=ESP.getFreeHeap();d["fsReady"]=fsReady;
@@ -295,7 +299,7 @@ void api() {
     // Save incident names even after switching; message bodies remain unchanged.
     JsonDocument entry;entry["id"]=hex64(next);entry["name"]=name;
     if(!writeJson("/incidents/"+hex64(next)+".json",entry)){error(507,"Cannot save incident");return;}
-    active=next;activeName=name;mesh->setIncident(active);retries.clear();humanAckRetries.clear();broadcasts.reset(millis());stationDirty=true;saveConfig();inventoryCursor=0;
+    active=next;activeName=name;mesh->setIncident(active);retries.clear();humanAckRetries.clear();chatRetries.clear();broadcasts.reset(millis());stationDirty=true;saveConfig();inventoryCursor=0;
     JsonDocument out;out["id"]=hex64(active);respond(200,out);
   });
   server.on("/api/incidents",HTTP_GET,[]{
@@ -336,6 +340,7 @@ void api() {
     if(!parseHex(token,32)){error(400,"A persistent client submission token is required");return;}
     // Client token is also the record ID, making reconnect/retry idempotent.
     Id id=parseId(token);JsonDocument previous;
+    if(chatHave(id)){error(409,"Submission token belongs to a chat event");return;}
     if(readJson(path(id,".meta"),previous)){
       if(parse64(previous["incident"]|"")!=active || String(previous["sender"]|"")!=callsign){error(409,"Submission token already belongs to another form");return;}
       JsonDocument out;out["id"]=token;out["existing"]=true;respond(200,out);return;
@@ -386,7 +391,8 @@ void setup() {
   fsReady=LittleFS.begin(false,"/littlefs",10,"littlefs");
   Serial.printf("LittleFS partition 'littlefs': %s\n",fsReady?"mounted":"mount failed");
   if(fsReady){
-    LittleFS.mkdir("/records");LittleFS.mkdir("/incidents");
+    LittleFS.mkdir("/records");LittleFS.mkdir("/incidents");LittleFS.mkdir("/chat");
+    recoverChat();
     // NVS survives filesystem uploads. Restore the active incident's index entry
     // so the incident list agrees with the saved selection without erasing it.
     if(active && !activeName.isEmpty()) {
@@ -413,6 +419,8 @@ void setup() {
     return saved;
   };
   mesh->hello=onHello;mesh->receipt=[](const Id& id,uint64_t p,uint32_t hash,bool human){recordReceipt(id,p,hash,human);};
+  mesh->chatContains=[](const Id& id,uint32_t hash){JsonDocument m;return readJson(chatPath(id),m) && m["hash"].as<uint32_t>()==hash && parse64(m["incident"]|"")==active;};
+  mesh->chatPersist=saveChat;mesh->chatReceipt=chatReceipt;
   mesh->humanAcknowledged=[](const Id& id,uint32_t hash){
     JsonDocument m;if(!readJson(path(id,".meta"),m) || m["hash"].as<uint32_t>()!=hash)return false;
     for(JsonObject r:m["receipts"].as<JsonArray>())if(r["id"]==hex64(nodeId) && r["human"].as<bool>())return true;
@@ -461,8 +469,9 @@ void loop() {
   server.handleClient();uint32_t now=millis();
   if(radioReady && radioFlag) {
     radioFlag=false;
-    if(transmitting){++txFrames;radio.finishTransmit();transmitting=false;mesh->transmitted(transmittingFrame,now);radio.setPacketReceivedAction(radioIRQ);radio.startReceive();
+    if(transmitting){++txFrames;radio.finishTransmit();transmitting=false;mesh->transmitted(transmittingFrame,now);chatTransmitted(transmittingFrame,now);radio.setPacketReceivedAction(radioIRQ);radio.startReceive();
       if(transmittingLast){retries.sent(transmittingId,now);txNext=now+ACK_LISTEN_MS;}
+      else if(transmittingFrame.kind==Kind::Chat && transmittingFrame.origin==nodeId && transmittingFrame.part+1==transmittingFrame.parts)txNext=now+ACK_LISTEN_MS;
       else txNext=now+100+esp_random()%600;
       transmittingLast=false;
     }
@@ -519,6 +528,7 @@ void loop() {
       if(!deliveryPending(m)){retries.cancel(id);mesh->cancelPublish(id);continue;}
       if(retries.due(id,now)){Record r;if(loadRecord(id,r)&&mesh->publish(r))retries.queued(id);}
     }
+    chatRetries.service(now,[](const Id& id){Record r;return loadChat(id,r) && mesh->publish(r);});
   }
   // Leave receive mode running while idle. Restarting RX on every loop can
   // abort packets before their receive-complete interrupt is raised.
@@ -534,7 +544,11 @@ void loop() {
       if(result==RADIOLIB_ERR_NONE){transmitting=true;transmittingFrame=f;transmittingId=f.id;transmittingLast=f.kind==Kind::Data && f.origin==nodeId && f.part+1==f.parts;}
       else {
         radioError=result;
-        if(!mesh->queueFrame(f,now,CONTROL_QUEUE_RETRY_MS) && f.kind==Kind::Data && f.origin==nodeId){retries.cancel(f.id);mesh->cancelPublish(f.id,true);}
+        const bool requeued=mesh->queueFrame(f,now,CONTROL_QUEUE_RETRY_MS);
+        if(!requeued && f.origin==nodeId && dataKind(f.kind)){
+          mesh->cancelPublish(f.id,true);
+          if(f.kind==Kind::Chat)chatRetries.lost(f.id,now);else retries.cancel(f.id);
+        }
         radio.setPacketReceivedAction(radioIRQ);radio.startReceive();txNext=now+CONTROL_QUEUE_RETRY_MS;
       }
     }else{radio.setPacketReceivedAction(radioIRQ);radio.startReceive();}

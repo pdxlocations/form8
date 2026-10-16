@@ -15,27 +15,38 @@
       <span class="header-label">RADIO INSTALLER</span>
     </header>
     <section class="intro">
-      <p class="eyebrow">INCIDENT MESSAGING · ESP32 LORA</p>
-      <h1>Your radio.<br>Ready for Form8.</h1>
-      <p class="lede">Choose your board, connect it by USB, and install a published firmware build. Releases load automatically from GitHub.</p>
+      <h1>Install or update Form8</h1>
+      <p class="lede">Use this page to install Form8 software on your radio over USB. Choose the version and board below, download the software, then connect to the radio to install it.</p>
+      <p class="project-description">Form8 lets you exchange incident forms and short chat messages between LoRa radios using a phone or laptop. Once installed, messaging works without internet or cell service. Radio messages are not encrypted.</p>
+      <a class="project-link" href="https://github.com/pdxlocations/form8" target="_blank" rel="noopener">Project information and source code on GitHub ↗</a>
+      <div class="requirements">
+        <h2>What you need</h2>
+        <ul>
+          <li>A computer using Chrome or Edge, with internet access for the download.</li>
+          <li>A supported radio and a USB <strong>data</strong> cable. A charging-only cable will not work.</li>
+          <li>The exact board model and radio chip. Check the board markings or the <a href="https://github.com/pdxlocations/form8/blob/main/docs/BOARDS.md" target="_blank" rel="noopener">board guide</a> if unsure.</li>
+        </ul>
+        <p>Plug in the radio and close any serial monitor or other app using its USB port.</p>
+      </div>
     </section>
     <div id="browser-note" class="notice" hidden></div>
     <section class="installer" aria-labelledby="installer-title">
-      <div class="section-heading"><h2 id="installer-title">Install firmware</h2><span class="badge">USB CONNECTION</span></div>
+      <div class="section-heading"><h2 id="installer-title">Choose your installation</h2></div>
       <div class="field">
-        <div class="label-line"><label for="release">01 / Firmware version</label><button id="refresh" type="button" class="text-button">Refresh releases ↻</button></div>
+        <div class="label-line"><label for="release">1. Firmware version</label><button id="refresh" type="button" class="text-button">Refresh releases ↻</button></div>
         <select id="release" disabled><option>Loading releases…</option></select>
         <div class="release-meta"><label class="check"><input id="prereleases" type="checkbox"> Show prereleases</label><a id="release-link" href="https://github.com/pdxlocations/form8/releases" target="_blank" rel="noopener">Release notes ↗</a></div>
+        <p class="hint">The newest available regular release is selected automatically. Prereleases are versions intended for testing.</p>
       </div>
       <div class="field">
-        <label for="board">02 / Your board</label>
+        <label for="board">2. Your board</label>
         <select id="board" disabled><option>Choose a release first</option></select>
         <p id="board-info" class="hint">Match the exact board, radio chip, and Heltec V4 revision. USB detects the processor, not the board model.</p>
       </div>
       <fieldset class="field">
-        <legend>03 / Installation type</legend>
-        <label class="mode"><input type="radio" name="mode" value="update" checked><span><strong>Update an existing Form8 radio</strong><small>App only. Keep the same board and storage layout. Leave “Erase device” unchecked in the installer to preserve forms and settings.</small></span></label>
-        <label class="mode"><input type="radio" name="mode" value="factory"><span><strong>First installation / start fresh</strong><small>Includes the bootloader and initialized storage. Replaces saved messages, incidents, and settings.</small></span></label>
+        <legend>3. Installation type</legend>
+        <label class="mode"><input type="radio" name="mode" value="update" checked><span><strong>Update an existing Form8 radio</strong><small>Choose this if Form8 is already installed on this board. Leave “Erase device” unchecked in the installer to keep saved forms and settings.</small></span></label>
+        <label class="mode"><input type="radio" name="mode" value="factory"><span><strong>First installation / start fresh</strong><small>Choose this for a new radio, a radio running other software, or to start over. Deletes saved messages, incidents, and settings.</small></span></label>
         <p id="factory-note" class="hint" hidden>This release has no first-install image for this board. Select a newer release or use PlatformIO for the first installation.</p>
       </fieldset>
       <div class="confirmations">
@@ -56,12 +67,11 @@
       </div>
     </section>
     <section class="instructions" aria-labelledby="before-title">
-      <h2 id="before-title">Before you connect</h2>
+      <h2 id="before-title">After installation</h2>
       <ol>
-        <li><strong>Use a USB data cable.</strong> Close serial monitors and other apps using the radio. Attach its antenna before enabling radio transmission.</li>
-        <li><strong>Choose the exact board.</strong> V4.2 and V4.3 use different front ends. T3-S3 SX1262 and SX1276 have separate builds.</li>
-        <li><strong>After installation, reconnect.</strong> Read the Wi-Fi name and password on the OLED, or use Logs &amp; Console at 115200 baud and send <code>wifi</code> on a headless XIAO or BPF.</li>
-        <li><strong>Open the radio’s app.</strong> Join its Wi-Fi hotspot, visit <code>http://192.168.4.1</code>, then save your callsign and matching radio settings.</li>
+        <li><strong>Find the radio’s Wi-Fi name and password.</strong> These appear on its screen after it restarts. If the board has no screen, open Logs &amp; Console at 115200 baud and send <code>wifi</code>.</li>
+        <li><strong>Connect your phone or laptop to that Wi-Fi network.</strong> Stay connected even if it reports no internet access.</li>
+        <li><strong>Open <code>http://192.168.4.1</code>.</strong> In Radio setup, save your callsign and use matching radio settings on all participating nodes. Attach the antenna before enabling radio transmission.</li>
       </ol>
       <details><summary>My radio does not appear or will not connect</summary><p>Try another data cable or USB port. If needed, hold BOOT, press and release RESET, then release BOOT and connect again. Some boards appear under a different USB port in bootloader mode. Select that port. A USB serial driver may be needed for boards with a USB-to-serial bridge.</p></details>
       <details><summary>Will this preserve my messages?</summary><p>An app-only update using the same board and partition layout preserves storage when “Erase device” is unchecked. Archive important forms first. A first-install image replaces storage even if that installer checkbox is unchecked.</p></details>

@@ -23,7 +23,8 @@ inline uint32_t crc32(const uint8_t* data, size_t size) {
 inline uint32_t crc32(const std::string& s) {
   return crc32(reinterpret_cast<const uint8_t*>(s.data()), s.size());
 }
-enum class Kind : uint8_t { Hello=1, Inventory=2, Request=3, Data=4, Receipt=5, HumanAck=6 };
+enum class Kind : uint8_t { Hello=1, Inventory=2, Request=3, Data=4, Receipt=5, HumanAck=6, Chat=7, ChatReceipt=8 };
+inline bool dataKind(Kind kind){return kind==Kind::Data || kind==Kind::Chat;}
 struct Frame {
   bool repairReply=false; // Local TX bookkeeping; never serialized on the wire.
   Kind kind = Kind::Data;
@@ -42,15 +43,15 @@ inline uint64_t get(const uint8_t* p, size_t n) {
 }
 inline bool valid(const Frame& f) {
   const auto k = static_cast<uint8_t>(f.kind);
-  if (k<1 || k>6 || !f.origin || f.ttl>MAX_HOPS || f.priority>3 || f.payload.size()>CHUNK) return false;
+  if (k<1 || k>8 || !f.origin || f.ttl>MAX_HOPS || f.priority>3 || f.payload.size()>CHUNK) return false;
   if (f.kind != Kind::Hello && !f.incident) return false;
-  if (f.kind == Kind::Data) {
-    if (emptyId(f.id) || !f.total || f.total>MAX_BODY || f.parts!=(f.total+CHUNK-1)/CHUNK || f.part>=f.parts) return false;
+  if (dataKind(f.kind)) {
+    if (emptyId(f.id) || !f.total || f.total>(f.kind==Kind::Chat?768:MAX_BODY) || f.parts!=(f.total+CHUNK-1)/CHUNK || f.part>=f.parts) return false;
     return f.payload.size() == std::min(CHUNK, size_t(f.total)-size_t(f.part)*CHUNK);
   }
   if (f.part || f.parts!=1 || f.total!=f.payload.size()) return false;
   if (f.kind == Kind::Inventory) return !f.payload.empty() && f.payload.size()%20==0;
-  if (f.kind == Kind::Request || f.kind == Kind::Receipt || f.kind == Kind::HumanAck)
+  if (f.kind == Kind::Request || f.kind == Kind::Receipt || f.kind == Kind::HumanAck || f.kind==Kind::ChatReceipt)
     return !emptyId(f.id) && f.payload.empty();
   return !f.payload.empty();
 }
@@ -71,7 +72,7 @@ inline bool decode(const uint8_t* p, size_t n, Frame& f) {
   f.nonce=get(p+40,4); f.hash=get(p+44,4); f.total=get(p+48,2);
   f.payload.assign(p+50,p+n-4); return valid(f);
 }
-struct Record { Id id{}; uint64_t incident=0, origin=0; uint8_t priority=0; uint32_t hash=0; std::string body; };
+struct Record { Id id{}; uint64_t incident=0, origin=0; uint8_t priority=0; uint32_t hash=0; std::string body; Kind kind=Kind::Data; };
 struct Assembly {
   Frame first;
   std::string body;
@@ -81,9 +82,9 @@ class Reassembler {
   std::vector<Assembly> slots;
 public:
   bool accept(const Frame& f, uint32_t now, Record& out) {
-    if (f.kind!=Kind::Data || !valid(f)) return false;
+    if (!dataKind(f.kind) || !valid(f)) return false;
     slots.erase(std::remove_if(slots.begin(),slots.end(),[now](const Assembly& a){return uint32_t(now-a.touched)>120000;}),slots.end());
-    auto it=std::find_if(slots.begin(),slots.end(),[&](const Assembly& a){return a.first.id==f.id && a.first.incident==f.incident;});
+    auto it=std::find_if(slots.begin(),slots.end(),[&](const Assembly& a){return a.first.id==f.id && a.first.incident==f.incident && a.first.kind==f.kind;});
     if (it==slots.end()) {
       if (slots.size()>=3) return false;
       slots.push_back({f,std::string(f.total,'\0'),0,now}); it=slots.end()-1;
@@ -93,7 +94,7 @@ public:
     it->mask |= 1u<<f.part; it->touched=now;
     if (it->mask != (1u<<f.parts)-1) return false;
     if (crc32(it->body)!=f.hash) { slots.erase(it); return false; }
-    out={f.id,f.incident,f.origin,f.priority,f.hash,std::move(it->body)}; slots.erase(it); return true;
+    out={f.id,f.incident,f.origin,f.priority,f.hash,std::move(it->body),f.kind}; slots.erase(it); return true;
   }
 };
 struct InventoryEntry { Id id{}; uint32_t hash=0; };
@@ -118,6 +119,9 @@ public:
   std::function<bool(const Id&)> contains;
   std::function<bool(const Id&,Record&)> load;
   std::function<bool(const Record&)> persist;
+  std::function<bool(const Id&,uint32_t)> chatContains;
+  std::function<bool(const Record&)> chatPersist;
+  std::function<void(const Id&,uint64_t,uint32_t)> chatReceipt;
   std::function<void(const Frame&)> hello;
   std::function<void(const Id&,uint64_t,uint32_t,bool)> receipt;
   std::function<bool(const Id&,uint32_t)> humanAcknowledged;
@@ -125,7 +129,11 @@ public:
   explicit Mesh(uint64_t node,uint32_t bootSequence=0): serial(bootSequence),self(node) {}
   void setIncident(uint64_t value) { incident=value; queue.clear(); jobs.clear(); reassembler=Reassembler{}; }
   uint64_t activeIncident() const { return incident; }
-  size_t pending() const { return queue.size()+jobs.size(); }
+  size_t pending(bool includeChat=true) const {
+    if(includeChat)return queue.size()+jobs.size();
+    return std::count_if(queue.begin(),queue.end(),[](const Queued& q){return q.f.kind!=Kind::Chat && q.f.kind!=Kind::ChatReceipt;})+
+      std::count_if(jobs.begin(),jobs.end(),[](const Job& j){return j.record.kind!=Kind::Chat;});
+  }
   bool ready(uint32_t now) const {
     if(!jobs.empty())return true;
     for(const auto& item:queue)if(int32_t(now-item.due)>=0)return true;
@@ -134,7 +142,7 @@ public:
   void cancelPublish(const Id& id,bool offloaded=false) {
     jobs.erase(std::remove_if(jobs.begin(),jobs.end(),[&](const Job& j){return j.record.id==id && (offloaded || !j.repair);}),jobs.end());
     queue.erase(std::remove_if(queue.begin(),queue.end(),[&](const Queued& q){
-      if(q.f.kind==Kind::Data && q.f.id==id && (offloaded || !q.f.repairReply))return true;
+      if(dataKind(q.f.kind) && q.f.id==id && (offloaded || !q.f.repairReply))return true;
       if(offloaded && q.f.kind==Kind::Inventory && q.f.origin==self)
         for(size_t i=0;i<q.f.payload.size();i+=20)if(std::equal(id.begin(),id.end(),q.f.payload.begin()+i))return true;
       return false;
@@ -144,7 +152,7 @@ public:
     if (!valid(f)) { ++dropped; return false; }
     // Coalesce our still-unsent control packets; forwarded packets retain
     // their original publisher/nonce and use the duplicate cache instead.
-    if(f.origin==self && f.kind!=Kind::Data)
+    if(f.origin==self && !dataKind(f.kind))
       for(const auto& item:queue)if(item.f.origin==self && item.f.kind==f.kind && item.f.incident==f.incident){
         if(f.kind==Kind::Hello || f.kind==Kind::Inventory){if(item.f.payload==f.payload)return true;}
         else if(item.f.id==f.id && item.f.hash==f.hash)return true;
@@ -156,8 +164,9 @@ public:
     Frame f; f.kind=kind; f.origin=self; f.incident=incident; f.id=id; f.nonce=++serial; f.hash=hash; return f;
   }
   bool publish(const Record& r,bool repair=false) {
-    if (r.incident!=incident || r.body.empty() || r.body.size()>MAX_BODY || crc32(r.body)!=r.hash) return false;
+    if (!dataKind(r.kind) || r.incident!=incident || r.body.empty() || r.body.size()>(r.kind==Kind::Chat?768:MAX_BODY) || crc32(r.body)!=r.hash) return false;
     for (auto& j:jobs) if (j.record.id==r.id) {j.repair|=repair;return true;}
+    if(r.kind==Kind::Chat && jobs.size()>=2)return false; // Keep body-job capacity for forms.
     if (jobs.size()>=4) { ++dropped; return false; }
     jobs.push_back({r,0,++serial,order++,repair}); return true;
   }
@@ -175,8 +184,8 @@ public:
     }
     return accepted;
   }
-  bool acknowledge(const Id& id,uint32_t hash,bool human,uint32_t now) {
-    return queueFrame(control(human?Kind::HumanAck:Kind::Receipt,id,hash),now);
+  bool acknowledge(const Id& id,uint32_t hash,bool human,uint32_t now,bool chat=false) {
+    return queueFrame(control(chat?Kind::ChatReceipt:human?Kind::HumanAck:Kind::Receipt,id,hash),now);
   }
   void transmitted(const Frame& f,uint32_t now) {
     if(f.kind==Kind::Data && f.repairReply && f.part+1==f.parts && humanAcknowledged && humanAcknowledged(f.id,f.hash))acknowledge(f.id,f.hash,true,now);
@@ -196,11 +205,16 @@ public:
       Record r; if (load && load(f.id,r) && r.hash==f.hash) publish(r,true);
     } else if (f.kind==Kind::Receipt || f.kind==Kind::HumanAck) {
       if (receipt) receipt(f.id,f.origin,f.hash,f.kind==Kind::HumanAck);
-    } else if (f.kind==Kind::Data) {
-      if (contains && contains(f.id)) { if(f.part==0) acknowledge(f.id,f.hash,false,now+jitter); }
+    } else if(f.kind==Kind::ChatReceipt){
+      if(chatReceipt)chatReceipt(f.id,f.origin,f.hash);
+    } else if (dataKind(f.kind)) {
+      const bool chat=f.kind==Kind::Chat;
+      const auto& save=chat?chatPersist:persist;
+      const bool known=chat?(chatContains && chatContains(f.id,f.hash)):(contains && contains(f.id));
+      if (known) { if(f.part==0) acknowledge(f.id,f.hash,false,now+jitter,chat); }
       else {
         Record r;
-        if (reassembler.accept(f,now,r) && persist && persist(r)) acknowledge(r.id,r.hash,false,now+jitter);
+        if (reassembler.accept(f,now,r) && save && save(r)) acknowledge(r.id,r.hash,false,now+jitter,chat);
       }
     }
     if (f.ttl>0) { --f.ttl; queueFrame(f,now,jitter); }
@@ -220,7 +234,7 @@ public:
     if(qi<queue.size()) { out=std::move(queue[qi].f); queue.erase(queue.begin()+qi); duplicate(out,now); return true; }
     if(ji<jobs.size()) {
       auto& j=jobs[ji]; auto& r=j.record;
-      out=Frame{}; out.kind=Kind::Data; out.repairReply=j.repair;out.origin=r.origin; out.incident=r.incident; out.id=r.id;
+      out=Frame{}; out.kind=r.kind; out.repairReply=j.repair;out.origin=r.origin; out.incident=r.incident; out.id=r.id;
       out.hash=r.hash; out.priority=r.priority; out.total=r.body.size(); out.parts=(r.body.size()+CHUNK-1)/CHUNK;
       out.part=j.next++; out.nonce=j.nonce;
       size_t start=size_t(out.part)*CHUNK, end=std::min(r.body.size(),start+CHUNK);

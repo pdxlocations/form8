@@ -11,7 +11,7 @@ function harness(){
   const $=selector=>{if(!elements.has(selector))elements.set(selector,element());return elements.get(selector);};
   let next={callsign:'TEST2',frequency:919.5,peers:[],incident:'42',incidentName:'Test',storageUsed:0,storageTotal:1048576,queue:0,fsReady:true,radioReady:true,txEnabled:true,band:'uhf',board:'Heltec',clockSource:'unset',power:14};
   let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
-  const context=vm.createContext({$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value)=>({...element(),tag,value}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>calls.push('traffic'),joinIncident(){}});
+  const context=vm.createContext({$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value)=>({...element(),tag,value}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>calls.push('traffic'),loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
   vm.runInContext("let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',offset=0;"+source.slice(source.indexOf('function poll()'),source.indexOf('function deliveryIndicator'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
   return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};
 }
@@ -51,9 +51,16 @@ test('concurrent refresh callers await the same update',async()=>{
   assert.equal(h.calls.filter(c=>c==='status').length,1);
 });
 
+test('visible chat refreshes with status and incident changes clear chat while form counts stay separate',async()=>{
+  const h=harness();h.$('#chat').hidden=false;
+  h.update({unreadMessages:2,outgoingMessages:1});await h.poll();
+  assert.ok(h.calls.includes('chat'));assert.equal(h.$('#message-status').textContent,'2 unread · 1 awaiting radio ACK');
+  h.update({incident:'99'});await h.poll();assert.ok(h.calls.includes('chat-reset'));
+});
+
 test('every tab has a refresh button that updates data without navigation or resetting edits',async()=>{
   const html=readFileSync(new URL('../web/index.html',import.meta.url),'utf8');
-  for(const tab of ['compose','traffic','incidents','archive','settings'])assert.ok(html.includes(`data-refresh="${tab}"`));
+  for(const tab of ['compose','traffic','chat','incidents','archive','settings'])assert.ok(html.includes(`data-refresh="${tab}"`));
   const h=harness();
   h.context.draftList=async()=>h.calls.push('drafts');h.context.loadArchives=async()=>h.calls.push('archives');
   vm.runInContext(source.slice(source.indexOf('async function refreshData'),source.indexOf('for(const refresh of')),h.context);

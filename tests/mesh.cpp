@@ -2,6 +2,7 @@
 #include <RecordName.h>
 #include <DeliveryRetry.h>
 #include <TrafficSchedule.h>
+#include <Chat.h>
 #include <cassert>
 #include <iostream>
 #include <map>
@@ -12,16 +13,60 @@ struct Node {
   Mesh mesh;
   std::map<Id,Record> records;
   std::map<uint64_t,bool> receipts;
+  std::map<Id,Record> chats;
+  std::map<uint64_t,bool> chatReceipts;
   bool fail=false;
   explicit Node(uint64_t n):mesh(n){
     mesh.setIncident(42);mesh.contains=[this](const Id& i){return records.count(i)>0;};
     mesh.load=[this](const Id& i,Record& r){if(!records.count(i))return false;r=records[i];return true;};
     mesh.persist=[this](const Record& r){if(fail)return false;records[r.id]=r;return true;};
     mesh.receipt=[this](const Id&,uint64_t who,uint32_t,bool human){receipts[who]=human;};
+    mesh.chatContains=[this](const Id& i,uint32_t hash){return chats.count(i) && chats[i].hash==hash;};
+    mesh.chatPersist=[this](const Record& r){if(fail)return false;chats[r.id]=r;return true;};
+    mesh.chatReceipt=[this](const Id&,uint64_t who,uint32_t){chatReceipts[who]=true;};
   }
 };
 void exchange(Node& a,Node& b,uint32_t now){Frame f;while(a.mesh.next(now,f)){auto bytes=encode(f);b.mesh.receive(bytes.data(),bytes.size(),now,0);a.mesh.transmitted(f,now);}}
 int main(){
+  // UTF-8 is bounded by bytes, with malformed sequences and control bytes rejected.
+  assert(validChatText(std::string(200,'a')) && !validChatText(std::string(201,'a')));
+  assert(validChatText("Hello 👋🏽\nReady ✅") && !validChatText(" \n\t"));
+  std::string emojis;for(int i=0;i<50;++i)emojis+="👍";
+  assert(validChatText(emojis));assert(!validChatText(emojis+"x"));
+  for(const std::string& malformed:{std::string("\xc0\xaf"),std::string("\xed\xa0\x80"),std::string("\xf4\x90\x80\x80"),std::string("\xf0\x9f"),std::string("a\0b",3)})assert(!validChatText(malformed));
+  assert(chatEmoji("❤️") && chatEmoji("👍") && !chatEmoji("unbounded"));
+  ChatRetries chatRetry;chatRetry.begin(id(90),100);unsigned chatAttempts=0;
+  auto sendChat=[&](const Id&){++chatAttempts;return true;};
+  chatRetry.service(100,sendChat);chatRetry.service(1000,sendChat);assert(chatAttempts==1);
+  assert(chatRetry.sent(id(90),1000)==1);chatRetry.service(15999,sendChat);assert(chatAttempts==1);
+  chatRetry.service(16000,sendChat);assert(chatAttempts==2);assert(chatRetry.sent(id(90),17000)==2);
+  chatRetry.service(61999,sendChat);assert(chatAttempts==2);chatRetry.service(62000,sendChat);assert(chatAttempts==3);
+  assert(chatRetry.sent(id(90),63000)==3 && !chatRetry.active(id(90)));chatRetry.service(10000000,sendChat);assert(chatAttempts==3);
+  chatRetry.begin(id(91),UINT32_MAX-10);chatRetry.service(UINT32_MAX-10,[](const Id&){return false;});
+  chatRetry.service(1988,sendChat);assert(chatAttempts==3);chatRetry.service(1989,sendChat);assert(chatAttempts==4);
+  chatRetry.interrupted(2000);chatRetry.service(2000,sendChat);assert(chatAttempts==5);chatRetry.cancel(id(91));assert(!chatRetry.active(id(91)));
+  // Chat uses its own packets, durable-save ACKs and stores; forms remain untouched.
+  Node chatA(1),chatB(2),chatC(3);auto chatRecord=record(92,0,400);chatRecord.kind=Kind::Chat;
+  assert(chatA.mesh.publish(chatRecord));assert(chatA.mesh.pending()==1 && chatA.mesh.pending(false)==0);
+  for(uint32_t now=1;now<12;++now){
+    exchange(chatA,chatB,now);Frame forwarded;
+    while(chatB.mesh.next(now,forwarded)){auto wire=encode(forwarded);chatA.mesh.receive(wire.data(),wire.size(),now,0);chatC.mesh.receive(wire.data(),wire.size(),now,0);}
+    exchange(chatC,chatB,now);
+  }
+  assert(chatB.chats.count(chatRecord.id) && chatC.chats.count(chatRecord.id));
+  assert(chatA.chatReceipts.count(2) && chatA.chatReceipts.count(3));
+  assert(chatA.receipts.empty() && chatB.records.empty() && chatC.records.empty());
+  Node chatAckOnly(6);assert(chatAckOnly.mesh.acknowledge(chatRecord.id,chatRecord.hash,false,0,true));
+  assert(chatAckOnly.mesh.pending()==1 && chatAckOnly.mesh.pending(false)==0);
+  Node chatFailed(4),chatWriter(1);chatFailed.fail=true;chatWriter.mesh.publish(chatRecord);exchange(chatWriter,chatFailed,1);
+  Frame chatFrame;while(chatFailed.mesh.next(1,chatFrame))assert(chatFrame.kind!=Kind::ChatReceipt);
+  Node chatOther(5),chatSender(1);chatOther.mesh.setIncident(99);chatSender.mesh.publish(chatRecord);exchange(chatSender,chatOther,1);assert(chatOther.chats.empty() && !chatOther.mesh.pending());
+  Node chatCapacity(1);auto secondChat=chatRecord;secondChat.id=id(93);
+  assert(chatCapacity.mesh.publish(chatRecord) && chatCapacity.mesh.publish(secondChat));
+  auto thirdChat=chatRecord;thirdChat.id=id(94);assert(!chatCapacity.mesh.publish(thirdChat));
+  assert(chatCapacity.mesh.publish(record(95,3)) && chatCapacity.mesh.publish(record(96)));
+  assert(chatCapacity.mesh.pending(false)==2 && chatCapacity.mesh.next(1,chatFrame) && chatFrame.priority==3);
+  auto hugeChat=record(97,0,769);hugeChat.kind=Kind::Chat;assert(!chatCapacity.mesh.publish(hugeChat));
   // Quiet background schedules, bounded discovery responses, and join repair.
   BroadcastSchedule background;background.reset(0);
   assert(background.helloDue(0));background.helloQueued(0,0);
@@ -181,5 +226,5 @@ int main(){
   assert(!bounded.mesh.announce(announcement,0));assert(bounded.mesh.next(0,f));assert(bounded.mesh.announce(announcement,0));
   Node switching(1);switching.mesh.publish(original);switching.mesh.setIncident(99);assert(switching.mesh.pending()==0);
   Reassembler expired;assert(!expired.accept(fragments[0],0,result));for(size_t i=1;i<fragments.size();++i)assert(!expired.accept(fragments[i],120001,result));
-  std::cout<<"Mesh tests passed: codec, corruption, bounds, reassembly, multi-hop receipts, durable-save failure, partition repair, incident isolation, fairness, switching, quiet schedules, ACK repeats, backoff.\n";
+  std::cout<<"Mesh tests passed: codec, corruption, bounds, reassembly, multi-hop receipts, durable-save failure, partition repair, incident isolation, fairness, switching, quiet schedules, ACK repeats, backoff, UTF-8 chat, bounded chat retries, isolated chat receipts.\n";
 }

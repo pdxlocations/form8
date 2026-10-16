@@ -1,4 +1,4 @@
-import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments, numberUntitledDrafts, draftLabel} from './model.js';
+import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
 const $ = selector => document.querySelector(selector);
 let status = null, offset = 0, total = 0, draftTimer, locationData = null, settingsLoaded = false, boundIncident = '';
 let messageNeighbors = {previous:null,next:null};
@@ -73,8 +73,8 @@ function text(tag, value, className) { const el=document.createElement(tag);el.t
 function button(label, fn, className='secondary') { const b=text('button',label,className);b.type='button';b.onclick=run(fn);return b; }
 function showTab(tab) {
   for(const e of document.querySelectorAll('main > .panel'))e.hidden=e.id!==tab;
-  for(const b of document.querySelectorAll('nav button'))b.classList.toggle('selected',b.dataset.tab===tab);
-  if(tab==='traffic')run(loadTraffic)();if(tab==='incidents')run(loadIncidents)();if(tab==='archive')run(loadArchives)();
+  for(const b of document.querySelectorAll('nav button')){const selected=b.dataset.tab===tab;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));}
+  if(tab==='chat')run(loadChatMessages)();if(tab==='traffic')run(loadTraffic)();if(tab==='incidents')run(loadIncidents)();if(tab==='archive')run(loadArchives)();
 }
 for(const b of document.querySelectorAll('nav button'))b.onclick=()=>showTab(b.dataset.tab);
 function values() {
@@ -156,6 +156,98 @@ $('#phone-location').onclick=run(async()=>{
   }
 });
 $('#clear-location').onclick=run(async()=>{locationData=null;form.elements.lat.value='';form.elements.lon.value='';counts();await saveDraft();});
+let chatReply=null, chatIncident='', chatSubmission=null, chatRendered='', chatSending=false, chatVersion='', chatMessages=[];
+const reactionSubmissions=new Map(),reactionBusy=new Set();
+function chatControls(){
+  const length=utf8($('#chat-text').value).length;
+  $('#chat-byte-count').textContent=`${length} / 200 bytes`;
+  $('#chat-byte-count').classList.toggle('over-limit',length>200);
+  const changed=!!$('#chat-text').value && chatIncident && chatIncident!==status?.incident;
+  $('#chat-context').hidden=!changed;$('#chat-review').hidden=!changed;
+  $('#chat-context').textContent='The incident changed. Review this text before sending it to the current incident.';
+  $('#chat-send').disabled=chatSending || !status || status.incident==='0000000000000000' || changed || length>200 || !$('#chat-text').value.trim();
+  $('#chat-text').disabled=chatSending;
+  $('#chat-reply').hidden=!chatReply;
+  $('#chat-reply-label').textContent=chatReply?`Reply to ${chatReply.sender}: ${chatReply.text}`:'';
+}
+function resetChat(){
+  chatReply=null;chatRendered='';chatVersion='';chatMessages=[];chatSubmission=null;reactionSubmissions.clear();
+  $('#chat-list').replaceChildren();
+}
+$('#chat-text').addEventListener('input',()=>{
+  if(!chatIncident || !$('#chat-text').value)chatIncident=status?.incident||'';
+  chatSubmission=null;chatControls();
+});
+$('#chat-review').onclick=()=>{chatIncident=status?.incident||'';chatSubmission=null;chatControls();};
+$('#chat-cancel-reply').onclick=()=>{chatReply=null;chatSubmission=null;chatControls();};
+for(const emoji of chatEmojis){
+  const insert=button(emoji,()=>{
+    const input=$('#chat-text');input.setRangeText(emoji,input.selectionStart,input.selectionEnd,'end');
+    input.dispatchEvent(new Event('input'));input.focus();
+  },'secondary');insert.setAttribute('aria-label',`Insert ${emoji}`);$('#chat-emojis').append(insert);
+}
+async function reactToChat(message,emoji){
+  const incident=status?.incident;if(!incident || incident==='0000000000000000')throw new Error('Join an incident first.');
+  const key=`${incident}:${message.id}:${emoji}`;if(reactionBusy.has(key))return;
+  const enabled=!(message.reactions||[]).some(reaction=>reaction.emoji===emoji && reaction.origin===status.node);
+  let submission=reactionSubmissions.get(key);
+  if(!submission || submission.active!==enabled){submission={type:'chat-reaction',clientToken:token(),incident,target:message.id,emoji,active:enabled};reactionSubmissions.set(key,submission);}
+  reactionBusy.add(key);
+  try {await api('chat',submission);reactionSubmissions.delete(key);await loadChatMessages();}
+  finally {reactionBusy.delete(key);}
+}
+async function loadChatMessages(){
+  const incident=status?.incident;
+  chatControls();
+  if(!incident || incident==='0000000000000000'){
+    $('#chat-list').replaceChildren(text('p','Join an incident to chat.','muted'));return;
+  }
+  const result=await api(`chat${chatVersion?`?since=${encodeURIComponent(chatVersion)}`:''}`);
+  if(status?.incident!==incident || result.incident!==incident)return;
+  if(result.unchanged)result.messages=chatMessages;
+  else {chatMessages=result.messages;chatVersion=result.version||'';}
+  const signature=JSON.stringify([result.messages,status.node,status.peers]);
+  if(signature===chatRendered)return;
+  chatRendered=signature;
+  const list=$('#chat-list'),atBottom=list.scrollHeight-list.clientHeight-list.scrollTop<80,scroll=list.scrollTop;
+  const opened=new Set([...list.querySelectorAll('details[open]')].map(detail=>detail.dataset.message));
+  list.replaceChildren();
+  for(const message of result.messages){
+    const item=text('article','',`chat-message${message.origin===status.node?' chat-own':''}`);item.dataset.message=message.id;
+    const heading=text('div','','chat-heading'),date=new Date(message.sentAt*1000);
+    heading.append(text('strong',message.sender),text('span',message.sentAt>=1577836800?date.toLocaleString():'Time not synchronized','muted'));item.append(heading);
+    if(message.parent){
+      const parent=result.messages.find(candidate=>candidate.id===message.parent);
+      item.append(text('blockquote',parent?`${parent.sender}: ${parent.text}`:`Reply to earlier message · ${message.parent.slice(-8)}`,'chat-quote'));
+    }
+    item.append(text('p',message.text,'chat-body'));
+    item.append(text('p',chatRadioStatus(message,status.peers,status.node),'chat-radio-ack'));
+    const actions=text('div','','chat-message-actions');
+    for(const group of chatReactionGroups(message,status.node)){
+      const reaction=button(`${group.emoji} ${group.count}`,()=>reactToChat(message,group.emoji),`secondary chat-reaction${group.mine?' mine':''}`);
+      reaction.setAttribute('aria-pressed',String(group.mine));reaction.title=`${group.people.join(', ')}${group.status?` · ${group.status}`:''}`;actions.append(reaction);
+    }
+    actions.append(button('Reply',()=>{chatReply={id:message.id,sender:message.sender,text:message.text};chatIncident=incident;chatSubmission=null;chatControls();$('#chat-text').focus();}));
+    const picker=text('details','','chat-reaction-picker');picker.dataset.message=message.id;picker.open=opened.has(message.id);picker.append(text('summary','React'));
+    const palette=text('div','','chat-emojis');
+    for(const emoji of chatEmojis){const choice=button(emoji,()=>reactToChat(message,emoji),'secondary');choice.setAttribute('aria-label',`React ${emoji} to ${message.sender}`);palette.append(choice);}
+    picker.append(palette);actions.append(picker);item.append(actions);list.append(item);
+  }
+  if(!result.messages.length)list.append(text('p','No chat messages on this radio yet.','muted'));
+  if(atBottom)list.scrollTop=list.scrollHeight;else list.scrollTop=scroll;
+}
+$('#chat-form').onsubmit=run(async event=>{
+  event.preventDefault();validateChatText($('#chat-text').value);chatControls();
+  if($('#chat-send').disabled)throw new Error('Connect, join an incident, and review the chat destination before sending.');
+  chatIncident=status.incident;
+  const payload={type:'chat-message',text:$('#chat-text').value,incident:chatIncident,...(chatReply?{parent:chatReply.id}:{})};
+  if(!chatSubmission || chatSubmission.signature!==JSON.stringify(payload))chatSubmission={signature:JSON.stringify(payload),...payload,clientToken:token()};
+  const {signature,...submission}=chatSubmission;chatSending=true;chatControls();
+  try {
+    await api('chat',submission);$('#chat-text').value='';chatReply=null;chatSubmission=null;chatIncident='';
+    feedback('Chat saved to radio. Delivery receipts will appear in Chat.');await loadChatMessages();
+  }finally {chatSending=false;chatControls();}
+});
 function poll() {
   if(polling)return polling;
   polling=refreshScreen().finally(()=>{polling=null;});
@@ -164,8 +256,9 @@ function poll() {
 async function refreshScreen() {
   try {
     const next=await api('status');
-    if(status && status.incident!==next.incident){offset=0;selectedForm=null;displayedRecord='';setTrafficView();}
+    if(status && status.incident!==next.incident){offset=0;selectedForm=null;displayedRecord='';setTrafficView();resetChat();}
     status=next;
+    chatControls();
     $('#connection').textContent=next.simulated?'Simulation · no RF':next.paused?'Connected · TX paused':!next.txEnabled?'Connected · TX disabled':'Connected to radio';
     $('#active-name').textContent=next.incidentName||'Choose an incident';
     $('#incident-id').textContent=next.incident==='0000000000000000'?'No incident selected':`Incident ID ${next.incident}`;
@@ -188,6 +281,7 @@ async function refreshScreen() {
       updates.push(loadTraffic());
       if(selectedForm){const id=selectedForm;updates.push(api(`form?id=${id}`).then(record=>{if(selectedForm===id)renderForm(record);}));}
     }
+    if(!$('#chat').hidden)updates.push(loadChatMessages());
     if(!$('#incidents').hidden)updates.push(loadRetainedIncidents());
     const results=await Promise.allSettled(updates);
     if(results.some(result=>result.status==='rejected')){feedback('Some displayed data could not refresh. Retrying automatically.',true);return false;}

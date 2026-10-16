@@ -12,10 +12,12 @@ The first hardware target is the **Heltec WiFi LoRa 32 V3 with 915 MHz hardware*
 
 - [Try it without radios](#try-it-without-radios)
 - [Choose a board target](docs/BOARDS.md)
+- [Install or update with the web flasher](#install-or-update-with-the-web-flasher)
 - [Install firmware for the first time](#install-firmware-for-the-first-time)
 - [Connect your phone or laptop](#connect-your-phone-or-laptop)
 - [First test with two radios](#first-test-with-two-radios)
 - [Read, acknowledge, reply, or correct](#read-acknowledge-reply-or-correct)
+- [Use incident chat](#use-incident-chat)
 - [Save an archive and free storage](#save-an-archive-and-free-storage)
 - [Update an existing radio](#update-an-existing-radio)
 - [Automatic radio traffic and retries](#automatic-radio-traffic-and-retries)
@@ -42,11 +44,32 @@ You can try the screens on a computer before setting up hardware.
 
 The header says **Simulation · no RF**. This demo does not transmit over a radio or test delivery between radios. Its saved data is in `tmp/demo.local.json`. You do not need to run `npm install` for the demo.
 
+## Install or update with the web flasher
+
+Open **[form8.pdxlocs.com](https://form8.pdxlocs.com)** on a computer using Chrome or Edge. The installer automatically offers published firmware builds from GitHub. You need internet access for the download and a USB **data** cable to connect the radio.
+
+1. Connect the radio by USB and close any serial monitor using it.
+2. Choose a firmware version and your exact board/radio variant. For Heltec V4, check whether you have V4.2 or V4.3; for T3-S3, check the radio chip.
+3. Choose the installation type:
+   - **Update an existing Form8 radio** for the same board and storage layout. Leave **Erase device** unchecked in the installer to preserve saved forms and settings.
+   - **First installation / start fresh** for an empty radio or to replace its data. This includes initialized storage and **replaces saved messages, incidents, and settings**.
+4. Confirm the board selection and, for a first installation, confirm data replacement.
+5. Click **Download & verify firmware**. Wait for the checksum check to finish.
+6. Click **Connect USB & install**, select the radio's USB port, and follow the installer dialog. Keep USB connected until it finishes.
+7. After the radio restarts, read its Wi-Fi name and password from the OLED. For a headless board, open **Logs & Console** at 115200 baud and send `wifi`.
+8. [Connect your phone or laptop](#connect-your-phone-or-laptop) to the radio's hotspot and open `http://192.168.4.1`.
+
+If the radio does not appear, try another data cable or USB port. If needed, hold BOOT, press and release RESET, then release BOOT and select the bootloader's USB port. If no builds appear, wait for the GitHub release workflow to finish and click **Refresh releases**; cached release data can take up to five minutes to update.
+
+The website detects the ESP32-S3 processor, but cannot identify your board model or radio chip for you. See the [board guide](docs/BOARDS.md) if you are unsure which build to select.
+
+To host the installer at `form8.pdxlocs.com`, upload the **contents** of this project's `webflasher/` folder to that subdomain's DreamHost web directory, with PHP 8.1+ and HTTPS enabled. See the [web flasher hosting instructions](webflasher/README.md) for the complete setup and troubleshooting steps. New GitHub releases appear automatically; firmware files do not need to be uploaded to DreamHost.
+
 ## Install firmware for the first time
 
 Published GitHub releases include binaries for all seven configured targets, a ZIP bundle, `SHA256SUMS`, and a board manifest. See [release builds and board selection](docs/BOARDS.md#automatic-github-release-builds). Regular binaries are app-only updates; separate `-factory.bin` images support first installation and replace saved data.
 
-The [webflasher folder](webflasher/README.md) is a ready-to-upload DreamHost installer that automatically offers GitHub release builds. New releases include separate first-install images and app-only updates.
+For installation in your browser, use the [web flasher instructions above](#install-or-update-with-the-web-flasher). The steps below use PlatformIO instead.
 
 These steps are for an **empty Heltec V3**, with no Form8 messages you need to keep.
 
@@ -83,6 +106,8 @@ pio device monitor -b 115200
 ```
 
 ## Connect your phone or laptop
+
+The workspace uses six icon buttons that fit across a phone screen: **pencil = Compose**, **envelope = Traffic**, **speech bubble = Chat**, **flag = Incidents**, **archive box = Device archive**, and **gear = Radio setup**. On a computer, hover over an icon to see its name. Screen readers announce each button's name.
 
 1. Power on the radio.
 2. In your phone or laptop's Wi-Fi settings, connect to the network shown on the radio, such as `form8-abcd`.
@@ -234,6 +259,25 @@ The archive belongs to that browser or companion on that device. Clearing browse
 
 **Discard locally** removes the message body from this radio without making an archive. Both actions keep receipt metadata, leave other radios' copies alone, and prevent this radio from automatically downloading that body again. An archived or discarded message is not marked delivered just because you removed it.
 
+## Use incident chat
+
+**Chat** is for short incident updates and conversations. Formal messages still belong in **Compose / Traffic**. All participants must run firmware with chat support, use matching radio settings, and join the same Incident ID. Older Form8 firmware does not receive or relay chat packets.
+
+1. Open **Chat** and type a short message, such as `At the staging area 👩🏽‍🚒`.
+2. Keep it within **200 UTF-8 bytes**, using the live counter below the text box. Emoji are supported; for example, `👍` uses four bytes. The limit applies to your text, not its radio metadata.
+3. Click **Send chat**. The message is saved on your radio and sent when radio transmission is enabled and unpaused.
+4. Check the delivery line below the message: **Awaiting radio ACK** changes to **Radio ACK: CALLSIGN…** as other radios confirm that they saved it. An ACK is a radio receipt, not proof that a person read it or that every incident node received it.
+5. Click **Reply** below a message to link your answer to it. Click **Cancel reply** to send a new message instead. An older reply target may show only its ID if it has left this radio's history.
+6. Use **React** to choose 👍, 👎, ❤️, ✅, ❓, 🚨, or 👀. Click your highlighted reaction to remove it. Reaction buttons show counts; their tooltips list callsigns and the radio-ACK state of your own reaction.
+
+The page refreshes chat and delivery information automatically; **Refresh data** also updates it without changing tabs or clearing your text. Changing incidents keeps typed text but requires **Use this text in the current incident** before sending it there.
+
+Chat messages, replies, reactions, and chat radio ACKs are **excluded from form traffic, form queued/unread counts, and the LCD's outgoing/unread counters**. They are stored separately and are not included in form archives. The low-level RX/TX diagnostic counters still count every radio packet.
+
+Each radio retains up to **96 chat events across incidents**, including reaction changes, and displays its latest **30 text messages** in the active incident. Oldest events are removed as new ones arrive; chat is a short conversation history, not a permanent record. It uses available radio storage while preserving the form storage reserve. Reactions and parent messages can disappear as their events age out.
+
+Chat uses an initial transmission plus at most **two retries**, with waits of **15 seconds** and then **45 seconds** after completed transmissions. A receipt from any remote radio stops that event's remaining retries. Without an ACK, the message stays visible with an unconfirmed-delivery label. A reboot or incident switch stops pending chat retries; same-incident radio reconfiguration preserves the remaining attempt budget. Chat does not broadcast periodic history inventories or synchronize old conversations to newly joined nodes. Chat is plaintext and unauthenticated, like forms.
+
 ## Update an existing radio
 
 1. Connect the radio by USB.
@@ -274,6 +318,8 @@ An inventory is also evidence that its publisher still holds a form body. A rece
 | Why we transmit | Trigger | Retry behavior |
 |---|---|---|
 | **New form — Data** | You send a new message, reply, or correction. The saved form is queued immediately, subject to radio/channel availability. Long forms are split into packets. | Full-form retry waits after completed transmissions are **3 s, 3 s, 3 s, 1 min, 5 min, then 15 min**. The 15-minute interval continues while required radio receipts are missing. There is a three-second receive-only window after each complete local form transmission. |
+| **Chat text, reply, or reaction — Chat** | You click **Send chat**, add a reaction, or remove your own reaction. Text is limited to **200 UTF-8 bytes**; the JSON event including metadata is at most **768 bytes**, split into 160-byte fragments. | Initial send plus at most **two retries**: wait **15 seconds** after the first completed send, then **45 seconds** after the second. Any remote chat receipt stops retries. Reboot/incident changes stop pending attempts; radio reconfiguration in the same incident preserves the budget. A full body-job queue is retried after **2 seconds**. There is no chat history inventory or idle broadcast timer. |
+| **Chat radio receipt — ChatReceipt** | A received chat event is durably saved, or the first fragment of an already-stored event with the same checksum is received again. | One receipt per trigger. Identical still-unsent receipts are combined. Sender retries may prompt another receipt; failed saves do not ACK. Chat receipts are separate from form and human acknowledgments. |
 | **Missing-form request — Request** | An inventory advertises a body this radio does not have. Deliberately archived/discarded bodies are not requested again. | There is no separate periodic request timer. If the body is still missing when another inventory advertises it, a new request can be made. Identical requests still waiting in our queue are combined. Requests have the normal relay delay plus up to **2.8 seconds** of per-entry spreading within an eight-entry inventory. |
 | **Repair body — Data** | A request matches a retained body and checksum on this radio. | Queue the matching body; an already-pending job for that body is reused. No independent repair-response retry timer runs. Another request can trigger another response if needed. |
 | **Radio receipt — Receipt** | A complete received body is successfully saved to flash; or the first fragment of an already-known body is received again. | One receipt per trigger, with identical still-unsent receipts combined. A sender's later Data retry can prompt another receipt. Inventories also provide receipt evidence. Failed saves do not generate a successful receipt. |
@@ -285,7 +331,7 @@ These intervals describe when work becomes eligible or is queued, not guaranteed
 
 ### Channel access, queue failures, and stopping retries
 
-- After an ordinary packet transmission, allow a random **100–699 ms** gap. After a complete locally originated form, the **3-second receive-only window** takes precedence.
+- After an ordinary packet transmission, allow a random **100–699 ms** gap. After a complete locally originated form or chat event, the **3-second receive-only window** takes precedence.
 - If channel scanning finds activity or returns an error, wait **500–2,999 ms** before trying again. A channel scan is listening, not another broadcast.
 - If starting a packet transmission fails, retry that frame after **2 seconds**. If a local Data frame cannot be requeued, unblock its form for a later full-form attempt instead of leaving it permanently marked queued. A dropped relay/control frame relies on the recovery rules above.
 - Identical locally generated Hello, inventory, request, receipt, and manual-ACK packets that are still unsent are combined. The mesh keeps at most **48 queued frames** and **4 outgoing body jobs**; overflow is counted under Radio setup.
@@ -306,6 +352,8 @@ Update **all** participating radios to get the quieter behavior throughout the n
 ### How long can messages be?
 
 The **Message / reply** field allows **2,800 UTF-8 bytes**. With ordinary English letters, numbers, and punctuation, that is about 2,800 characters. Emoji and some other characters use multiple bytes, so fewer fit. The counter below the message shows the byte count.
+
+The separate **Chat** tab allows **200 UTF-8 bytes** per message or reply. Emoji count toward that limit. Chat has its own radio receipts and does not add to form queued/unread counts.
 
 The complete form, including its other fields and metadata, must fit within **4,096 bytes**. A nearly full message combined with many long fields can exceed that total. Subject, names, positions, and typed signatures each have a **160-byte** limit.
 

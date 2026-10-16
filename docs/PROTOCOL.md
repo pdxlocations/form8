@@ -10,7 +10,7 @@ All multibyte integers are little-endian. IDs are 16 opaque bytes. The browser s
 |---|---:|---|
 | 0 | 2 | ASCII `F8` |
 | 2 | 1 | Version = 1 |
-| 3 | 1 | Kind: hello=1, inventory=2, request=3, data=4, receipt=5, human acknowledgment=6 |
+| 3 | 1 | Kind: hello=1, inventory=2, request=3, data=4, receipt=5, human acknowledgment=6, chat=7, chat receipt=8 |
 | 4 | 1 | Remaining forwarding TTL, initially 5 |
 | 5 | 1 | Precedence: routine=0, health/welfare=1, priority=2, emergency=3 |
 | 6 | 1 | Fragment index |
@@ -31,6 +31,20 @@ Hello payload is JSON containing callsign, active incident name, and an optional
 Nodes forward valid new packets with decremented TTL. Data, inventories, requests and receipts must match the receiver's active incident. Hello advertisements are allowed across incidents so operators can discover and explicitly join them. Frames use a bounded 256-entry duplicate cache with a two-minute lifetime; payload fingerprints normalize TTL before comparison. This is a corruption/duplicate check, not identity authentication.
 
 ## Scheduling and repair
+
+### Chat extension
+
+Chat uses the same framing, CRC checks, fragmentation, incident isolation, duplicate suppression, relay TTL, and durable-save requirement as forms, with distinct kinds **7** and **8**. Old implementations that accept only kinds 1–6 drop chat, so all participating relays must be updated. The form wire format remains compatible.
+
+Kind 7 carries a UTF-8 JSON event of at most **768 bytes** (up to five 160-byte fragments). A `chat-message` has `sender`, `sentAt`, `text` (1–200 UTF-8 bytes), and optional `parent` (a 32-hex chat ID). A `chat-reaction` has `sender`, `sentAt`, `target`, `emoji`, `active` (boolean), and a per-origin monotonic 32-bit `sequence`. The sequence is persisted across local reboot. The newest sequence for each `(origin, target, emoji)` determines the reaction state, independently of reception order. Supported reactions are 👍, 👎, ❤️, ✅, ❓, 🚨, and 👀.
+
+Kind 8 is a payload-free receipt referencing the chat ID and complete-event checksum. It cannot mark a form delivered or human-acknowledged. Already-known chat events must match the stored checksum before the first fragment prompts another receipt. Replies and reactions may arrive before their target; their reference remains intact until local history retention removes it.
+
+Chat is stored under `/chat`, separately from `/records`. Its bounded history retains 96 events across incidents; the HTTP feed returns the latest 30 text messages plus radio receipts and current retained reaction states. Form inventories, form archives, form queue/unread counters, and LCD message counts exclude chat. Chat and its receipts are also excluded from the status API's queue count; raw RF diagnostics still count them. Revision-aware HTTP polling avoids rescanning unchanged chat history every two seconds.
+
+An originating chat event has at most three completed transmissions: initial send, a retry 15 seconds after completion, and a retry 45 seconds after the second completion. Any matching remote chat receipt cancels further sends. Retry checks run once per second and respect pause/TX settings and channel availability. Failed body-job enqueue attempts wait two seconds; at most two body jobs can be occupied by chat, leaving capacity for forms. Complete local chat events have the same three-second receive window as forms. Radio start failures use the normal two-second frame retry; if requeue fails, the event is unblocked for a complete replay. Chat has no periodic inventory, repair, or human-ACK traffic. Reboot/incident changes stop chat retry state; same-incident reconfiguration resumes only the remaining budget. Retained chat is not automatically replayed after a reboot or incident rejoin.
+
+### Form scheduling
 
 There are at most 48 queued frames, four outbound body jobs, and three inbound assemblies. Higher precedence wins, with every eighth selection serving the oldest eligible item. Radio transmission uses random inter-frame delay and relay jitter. Queue overflow increments a visible dropped counter; inventories and originating-node retries recover from lost frames.
 

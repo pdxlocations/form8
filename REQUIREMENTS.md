@@ -26,6 +26,7 @@ Status: initial implementation created; host tests and Heltec compilation perfor
 - Plan for 2–30 nodes and 10–200 forms per day.
 - Size radio storage for one day without offloading, including form bodies, replies, receipt records, and metadata. Numeric byte limits require form limits and hardware verification. Earlier archives must also fit within an explicit storage budget or be offloaded.
 - Sending queues a form for automatic radio transmission and retries, with a pause control and a visible queue.
+- Separate incident chat for text up to 200 UTF-8 bytes, including emoji, linked replies, emoji reaction add/remove, and visible radio receipts. Chat and chat receipts do not contribute to form traffic, form queue/unread counts, or LCD form counters. Use bounded chat history and limited retries without periodic chat history broadcasts.
 - Operators configure frequency and modem settings locally, with separate VHF and UHF profiles and primary/backup presets. Exact preset frequencies and modem parameters remain undecided.
 - User-provided frequencies: 146.780 MHz VHF and 919.500 MHz UHF, interpreted as primary presets. Backup frequencies and modem parameters remain unspecified. Frequency, occupied bandwidth, power, and operating constraints must be considered together before enabling RF transmission; a preset alone is not a validated operating configuration.
 - Plan protocol addressing and duplicate handling for a future VHF/UHF bridge; implementing a bridge is outside the initial scope.

@@ -1,5 +1,42 @@
 export const priorities = ['Routine', 'Health & Welfare', 'Priority', 'Emergency'];
 export const utf8 = value => new TextEncoder().encode(value);
+export const chatEmojis = ['👍','👎','❤️','✅','❓','🚨','👀'];
+export function validateChatText(value) {
+  if(typeof value!=='string' || !value.trim())throw new Error('Enter a chat message.');
+  if(utf8(value).length>200)throw new Error('Chat messages are limited to 200 UTF-8 bytes. Emojis can use several bytes.');
+  if(/[\u0000-\u0008\u000b-\u001f\u007f]/.test(value))throw new Error('Chat contains an unsupported control character.');
+  for(let i=0;i<value.length;++i){const c=value.charCodeAt(i);
+    if(c>=0xd800 && c<=0xdbff){const next=value.charCodeAt(++i);if(!(next>=0xdc00 && next<=0xdfff))throw new Error('Chat contains an invalid emoji or character.');}
+    else if(c>=0xdc00 && c<=0xdfff)throw new Error('Chat contains an invalid emoji or character.');
+  }
+  return value;
+}
+export function chatRadioStatus(message, peers, self) {
+  const stations=(message.receipts||[]).filter(receipt=>receipt.id!==self)
+    .map(receipt=>peers.find(peer=>peer.id===receipt.id)?.callsign || receipt.callsign || receipt.id);
+  if(stations.length)return `Radio ACK: ${stations.join(', ')}`;
+  if(message.origin!==self)return 'Received by this radio';
+  return message.retrying?'Awaiting radio ACK':'No radio ACK · retries ended or interrupted';
+}
+export function chatReactionGroups(message,self) {
+  return chatEmojis.map(emoji=>{
+    const people=(message.reactions||[]).filter(reaction=>reaction.emoji===emoji);
+    const mine=people.find(reaction=>reaction.origin===self);
+    return {emoji,count:people.length,mine:!!mine,people:people.map(person=>person.callsign||person.origin),
+      status:mine?(mine.acked?'Your reaction: radio ACK':mine.retrying?'Your reaction: awaiting radio ACK':'Your reaction: no radio ACK'):''};
+  }).filter(group=>group.count);
+}
+export function chatTimeline(events) {
+  const reactions=new Map();
+  for(const event of events)if(event.body.type==='chat-reaction'){
+    const key=`${event.meta.origin}:${event.body.target}:${event.body.emoji}`,previous=reactions.get(key);
+    if(!previous || ((event.body.sequence-previous.body.sequence)|0)>0)reactions.set(key,event);
+  }
+  return events.filter(event=>event.body.type==='chat-message').sort((a,b)=>a.meta.order-b.meta.order).slice(-30).map(event=>({
+    ...event.body,...event.meta,reactions:[...reactions.values()].filter(reaction=>reaction.body.target===event.meta.id && reaction.body.active)
+      .map(reaction=>({origin:reaction.meta.origin,callsign:reaction.body.sender,emoji:reaction.body.emoji,acked:!!reaction.meta.receipts?.length,retrying:!!reaction.meta.retrying}))
+  }));
+}
 export function numberUntitledDrafts(drafts,counter=0) {
   const untitled=drafts.filter(draft=>!draft.form.subject?.trim());
   let next=untitled.length && Number.isSafeInteger(counter) && counter>0?counter:0;

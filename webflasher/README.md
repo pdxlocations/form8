@@ -6,9 +6,9 @@ Upload this folder to a PHP-enabled DreamHost website. It offers published build
 
 1. Enable a currently supported **PHP 8.1 or newer** version for your domain. PHP's cURL and JSON extensions must be available, and the host must allow outgoing HTTPS to GitHub.
 2. Enable HTTPS for the domain and wait for its certificate to become active. Browser USB flashing requires HTTPS (localhost also works for development).
-3. Upload the entire `webflasher` folder into your domain's web directory using SFTP. For example, `/home/YOUR_USER/example.com/webflasher/`.
-4. Open `https://example.com/webflasher/` in desktop Chrome or Edge. Do not open `index.html` as a local file.
-5. Check `https://example.com/webflasher/api.php?resource=releases`. It should return JSON with the repository and release list. If PHP source downloads or displays instead, stop and enable PHP on the host.
+3. Upload the **contents** of the `webflasher` folder into the DreamHost web directory configured for `form8.pdxlocs.com` using SFTP, for example `/home/YOUR_USER/form8.pdxlocs.com/`. Put `index.html`, `api.php`, and the other files directly in that directory.
+4. Open **https://form8.pdxlocs.com/** in desktop Chrome or Edge. Do not open `index.html` as a local file.
+5. Check `https://form8.pdxlocs.com/api.php?resource=releases`. It should return JSON with the repository and release list. If PHP source downloads or displays instead, stop and enable PHP on the host.
 6. Publish a GitHub release whose tagged commit includes the updated `.github/workflows/release-firmware.yml`. Wait for **Release firmware** to finish, then refresh this page. The first download may take longer while DreamHost fetches it from GitHub.
 
 No Node server, database, cron job, build step, GitHub token, or DreamHost credential is required by the deployed folder. The site uses a PHP bridge because browser downloads directly from GitHub release assets cannot reliably be fetched across origins. PHP caches GitHub responses and images for **five minutes** in the server's temporary directory, outside the web folder. The web-server account needs write permission there. GitHub's unauthenticated API limits apply; a busy shared server can hit them. The page reports this and asks the visitor to retry later.
@@ -60,7 +60,7 @@ php -l webflasher/config.php
 php tests/webflasher-api.php
 ```
 
-Localhost supports Web Serial without a certificate. Real hosting must use HTTPS. The preview still needs internet access to GitHub, the pinned ESP Web Tools module, and optional Google Fonts. If fonts cannot load, system fonts are used. ESP Web Tools is loaded only after the firmware passes verification; its USB installer code comes from unpkg at version **10.4.0**.
+Localhost supports Web Serial without a certificate. Real hosting must use HTTPS. The preview still needs internet access to GitHub and the pinned ESP Web Tools module. The page uses system fonts. ESP Web Tools is loaded only after the firmware passes verification; its USB installer code comes from unpkg at version **10.4.0**.
 
 ## Troubleshooting
 
