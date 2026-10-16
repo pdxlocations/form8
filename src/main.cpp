@@ -488,7 +488,7 @@ void setup() {
   server.onNotFound([]{
     if(server.method()!=HTTP_GET){error(404,"Unknown API route");return;}
     String uri=server.uri();if(uri=="/")uri="/index.html";
-    if(uri.indexOf("..")>=0 || !(uri=="/index.html" || uri=="/app.js" || uri=="/theme.js" || uri=="/position-client.js" || uri=="/map.js" || uri=="/map-model.js" || uri=="/map-store.js" || uri=="/model.js" || uri=="/style.css" || uri=="/sw.js" || uri=="/manifest.webmanifest" || uri=="/icon.svg")){error(404,"Not found");return;}
+    if(uri.indexOf("..")>=0 || !(uri=="/index.html" || uri=="/app.js" || uri=="/theme.js" || uri=="/position-client.js" || uri=="/map.js" || uri=="/map-model.js" || uri=="/map-store.js" || uri=="/model.js" || uri=="/unread.js" || uri=="/style.css" || uri=="/sw.js" || uri=="/manifest.webmanifest" || uri=="/icon.svg")){error(404,"Not found");return;}
     for(const auto& asset:WEB_ASSETS)if(uri==asset.path){server.sendHeader("Cache-Control","no-cache");server.send_P(200,asset.mime,asset.body);return;}
     error(404,"Not found");
   });server.begin();

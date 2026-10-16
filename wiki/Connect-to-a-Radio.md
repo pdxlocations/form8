@@ -10,6 +10,14 @@ The workspace uses seven icon buttons that fit across a phone screen: **pencil =
 6. Open **Radio setup** and enter your callsign, such as `NET-A`.
 7. Check the radio settings, then click **Save settings**.
 
+Navigation icons show small number badges when there is something new:
+
+- **Traffic (envelope):** unread incoming forms on this radio in the active incident. Opening a form marks it read; simply opening Traffic does not.
+- **Chat (speech bubble):** unread incoming texts in this incident on this phone/laptop. Opening Chat while the page is visible clears them. Your own texts, reactions, and radio receipt updates do not add unread texts.
+- **Incidents (flag):** newly discovered online incidents you have not viewed on this phone/laptop. Several nodes advertising the same incident count once. Your active incident is excluded. Opening Incidents while the page is visible clears the badge.
+
+Chat/incident read markers are saved in this browser separately for each radio; chat markers also separate incidents. They survive reloads, but clearing browser data resets them. Chat counts apply to the latest 30 retained texts returned by the radio. Badges hide at zero and display **99+** for larger counts; their accessible descriptions announce the full count. Chat and incident badges do not change the header’s form unread/queue totals. Badge refresh uses local Wi-Fi requests and does not add LoRa broadcasts.
+
 When a phone or laptop is connected, the Heltec screen shows:
 
 | Indicator | Meaning |

@@ -1,3 +1,4 @@
+import {UnreadTracker,setNavBadge} from './unread.js';
 import {createMapPanel} from './map.js';
 import {PositionClient,deviceLocation,locationPayload} from './position-client.js';
 import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
@@ -77,9 +78,18 @@ function button(label, fn, className='secondary') { const b=text('button',label,
 const mapPanel=createMapPanel({onError:message=>feedback(message,true)});
 const positionClient=new PositionClient({post:payload=>api('position',payload),onStatus:message=>{$('#position-status').textContent=message;}});
 $('#retry-position').onclick=run(async()=>{await positionClient.retry();await poll();});
+const unreadTracker=new UnreadTracker();
+function updateNavigationBadges(){
+  setNavBadge('traffic',status?.unreadMessages||0,'unread forms');
+  setNavBadge('incidents',unreadTracker.incidents(status,!document.hidden && !$('#incidents').hidden),'new incidents');
+}
+function updateChatBadge(messages){
+  setNavBadge('chat',unreadTracker.chat(status,messages,!document.hidden && !$('#chat').hidden),'unread texts');
+}
 function showTab(tab) {
   for(const e of document.querySelectorAll('main > .panel'))e.hidden=e.id!==tab;
   for(const b of document.querySelectorAll('nav button')){const selected=b.dataset.tab===tab;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));}
+  updateNavigationBadges();
   if(tab==='map')mapPanel.show();
   if(tab==='chat')run(loadChatMessages)();if(tab==='traffic')run(loadTraffic)();if(tab==='incidents')run(loadIncidents)();if(tab==='archive')run(loadArchives)();
 }
@@ -177,6 +187,7 @@ function chatControls(){
 }
 function resetChat(){
   chatReply=null;chatRendered='';chatVersion='';chatMessages=[];chatSubmission=null;reactionSubmissions.clear();
+  setNavBadge('chat',0,'unread texts');
   $('#chat-list').replaceChildren();
 }
 $('#chat-text').addEventListener('input',()=>{
@@ -225,16 +236,23 @@ function restoreChatScroll(saved){
 }
 $('#chat-latest').onclick=()=>$('#chat-list').lastElementChild?.scrollIntoView({block:'end',behavior:'smooth'});
 $('#chat-write').onclick=()=>{$('#chat-text').focus({preventScroll:true});$('#chat-form').scrollIntoView({block:'start',behavior:'smooth'});};
-async function loadChatMessages(){
-  const incident=status?.incident;
+let chatLoading=null;
+function loadChatMessages(){
+  if(chatLoading)return chatLoading;
+  chatLoading=refreshChatMessages().finally(()=>{chatLoading=null;});return chatLoading;
+}
+async function refreshChatMessages(){
+  const incident=status?.incident,node=status?.node;
   chatControls();
   if(!incident || incident==='0000000000000000'){
-    $('#chat-list').replaceChildren(text('p','Join an incident to chat.','muted'));return;
+    updateChatBadge([]);$('#chat-list').replaceChildren(text('p','Join an incident to chat.','muted'));return;
   }
   const result=await api(`chat${chatVersion?`?since=${encodeURIComponent(chatVersion)}`:''}`);
-  if(status?.incident!==incident || result.incident!==incident)return;
+  if(status?.node!==node || status?.incident!==incident || result.incident!==incident)return;
   if(result.unchanged)result.messages=chatMessages;
   else {chatMessages=result.messages;chatVersion=result.version||'';}
+  updateChatBadge(result.messages);
+  if($('#chat').hidden)return;
   const signature=JSON.stringify([result.messages,status.node,status.peers]);
   if(signature===chatRendered)return;
   chatRendered=signature;
@@ -304,8 +322,8 @@ async function refreshScreen() {
   try {
     const next=await api('status');
     const reconnected=!status;
-    if(status && status.incident!==next.incident){offset=0;selectedForm=null;displayedRecord='';setTrafficView();resetChat();}
-    status=next;
+    if(status && (status.node!==next.node || status.incident!==next.incident)){offset=0;selectedForm=null;displayedRecord='';setTrafficView();resetChat();}
+    status=next;updateNavigationBadges();
     positionClient.update(next);mapPanel.update(next);
     chatControls();
     $('#connection').textContent=next.simulated?'Simulation · no RF':next.paused?'Connected · TX paused':!next.txEnabled?'Connected · TX disabled':'Connected to radio';
@@ -332,7 +350,7 @@ async function refreshScreen() {
       updates.push(loadTraffic());
       if(selectedForm){const id=selectedForm;updates.push(api(`form?id=${id}`).then(record=>{if(selectedForm===id)renderForm(record);}));}
     }
-    if(!$('#chat').hidden)updates.push(loadChatMessages());
+    updates.push(loadChatMessages());
     if(!$('#incidents').hidden)updates.push(loadRetainedIncidents());
     const results=await Promise.allSettled(updates);
     if(results.some(result=>result.status==='rejected')){feedback('Some displayed data could not refresh. Retrying automatically.',true);return false;}

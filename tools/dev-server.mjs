@@ -14,7 +14,7 @@ state.config.positionEnabled??=true;state.config.positionInterval??=600;
 let saving=Promise.resolve();
 function save(){const snapshot=JSON.stringify(state);saving=saving.catch(()=>{}).then(async()=>{await writeFile(`${stateFile}.tmp`,snapshot);await rename(`${stateFile}.tmp`,stateFile);});return saving;}
 function reply(res,code,data){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}
-const files=new Set(['index.html','app.js','theme.js','position-client.js','map.js','map-model.js','map-store.js','model.js','style.css','sw.js','manifest.webmanifest','icon.svg']);
+const files=new Set(['index.html','app.js','theme.js','position-client.js','map.js','map-model.js','map-store.js','model.js','unread.js','style.css','sw.js','manifest.webmanifest','icon.svg']);
 const mimes={html:'text/html',js:'text/javascript',css:'text/css',svg:'image/svg+xml',webmanifest:'application/manifest+json'};
 http.createServer(async(req,res)=>{
   try{
