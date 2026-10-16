@@ -3,12 +3,18 @@ name: Release firmware
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number only, for example 0.2.0 (commit hash and Beta are added automatically)'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-firmware-${{ github.event.release.id }}
+  group: release-firmware-${{ github.event.release.id || format('{0}-{1}', github.sha, inputs.version) }}
   cancel-in-progress: false
 
 jobs:
@@ -17,11 +23,35 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - name: Check out the release tag
+      - name: Check out the exact release or selected workflow commit
         uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ github.event.release.tag_name }}
+          ref: ${{ github.sha }}
           persist-credentials: false
+
+      - name: Determine release name and tag
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          VERSION_INPUT: ${{ inputs.version }}
+          PUBLISHED_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          commit=$(git rev-parse HEAD)
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ ! "$VERSION_INPUT" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo 'Enter a version such as 0.2.0, without v, a commit hash, or beta.' >&2
+              exit 1
+            fi
+            short_commit=${commit:0:7}
+            tag="v${VERSION_INPUT}.${short_commit}-beta"
+            title="Form8 Firmware ${VERSION_INPUT}.${short_commit} Beta"
+            echo "title=$title" >> "$GITHUB_OUTPUT"
+          else
+            tag="$PUBLISHED_TAG"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -54,11 +84,47 @@ jobs:
         working-directory: dist/firmware
         run: sha256sum --check SHA256SUMS
 
-      - name: Attach firmware to the published release
+      - name: Create or resume a draft beta release
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.release.outputs.title }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+        shell: bash
+        run: |
+          # Never reuse a tag pointing to different code. These generated tags
+          # are lightweight tags; annotated or mismatched tags require a new version.
+          if existing_commit=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq '.object.sha' 2>/dev/null); then
+            if [[ "$existing_commit" != "$RELEASE_COMMIT" ]]; then
+              echo 'The generated tag already points to different code. Choose a new version.' >&2
+              exit 1
+            fi
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" \
+              -f "ref=refs/tags/$RELEASE_TAG" -f "sha=$RELEASE_COMMIT"
+          fi
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' 2>/dev/null); then
+            if [[ "$draft" != "true" ]]; then
+              echo 'This beta is already published. Choose a new version or commit.' >&2
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" \
+              --target "$RELEASE_COMMIT" \
+              --title "$RELEASE_TITLE" \
+              --verify-tag --prerelease --draft --generate-notes
+          fi
+          # Recheck after creation before uploading binaries or publishing.
+          actual_commit=$(gh api "repos/$GH_REPO/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')
+          test "$actual_commit" = "$RELEASE_COMMIT"
+
+      - name: Attach firmware to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           gh release upload "$RELEASE_TAG" \
             dist/form8-esp32-firmware.zip \
@@ -67,3 +133,12 @@ jobs:
             dist/firmware/manifest.json \
             dist/firmware/README.txt \
             --clobber
+
+      - name: Publish the completed beta release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.release.outputs.title }}
+        run: gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --draft=false --prerelease --latest=false

@@ -196,6 +196,30 @@ async function reactToChat(message,emoji){
   try {await api('chat',submission);reactionSubmissions.delete(key);await loadChatMessages();}
   finally {reactionBusy.delete(key);}
 }
+function captureChatScroll(){
+  const list=$('#chat-list'),composer=$('#chat-form');
+  const writing=composer.contains(document.activeElement);
+  const top=$('.chat-toolbar').getBoundingClientRect().bottom;
+  return {writing,composerTop:composer.getBoundingClientRect().top,scrollY:window.scrollY,
+    atEnd:list.getBoundingClientRect().bottom<=window.innerHeight+80,
+    last:list.lastElementChild?.dataset.message,
+    anchors:[...list.querySelectorAll('[data-message]')].map(message=>({id:message.dataset.message,rect:message.getBoundingClientRect()}))
+      .filter(anchor=>anchor.rect.bottom>top && anchor.rect.top<window.innerHeight)};
+}
+function restoreChatScroll(saved){
+  const list=$('#chat-list');
+  if(saved.writing){window.scrollBy(0,$('#chat-form').getBoundingClientRect().top-saved.composerTop);return;}
+  if(saved.last && saved.last!==list.lastElementChild?.dataset.message && saved.atEnd){
+    list.lastElementChild?.scrollIntoView({block:'end'});return;
+  }
+  for(const anchor of saved.anchors){
+    const message=[...list.children].find(element=>element.dataset.message===anchor.id);
+    if(message){window.scrollBy(0,message.getBoundingClientRect().top-anchor.rect.top);return;}
+  }
+  window.scrollTo(0,saved.scrollY);
+}
+$('#chat-latest').onclick=()=>$('#chat-list').lastElementChild?.scrollIntoView({block:'end',behavior:'smooth'});
+$('#chat-write').onclick=()=>{$('#chat-text').focus({preventScroll:true});$('#chat-form').scrollIntoView({block:'start',behavior:'smooth'});};
 async function loadChatMessages(){
   const incident=status?.incident;
   chatControls();
@@ -209,7 +233,7 @@ async function loadChatMessages(){
   const signature=JSON.stringify([result.messages,status.node,status.peers]);
   if(signature===chatRendered)return;
   chatRendered=signature;
-  const list=$('#chat-list'),atBottom=list.scrollHeight-list.clientHeight-list.scrollTop<80,scroll=list.scrollTop;
+  const list=$('#chat-list'),savedScroll=captureChatScroll();
   const opened=new Set([...list.querySelectorAll('details[open]')].map(detail=>detail.dataset.message));
   list.replaceChildren();
   for(const message of result.messages){
@@ -234,7 +258,7 @@ async function loadChatMessages(){
     picker.append(palette);actions.append(picker);item.append(actions);list.append(item);
   }
   if(!result.messages.length)list.append(text('p','No chat messages on this radio yet.','muted'));
-  if(atBottom)list.scrollTop=list.scrollHeight;else list.scrollTop=scroll;
+  restoreChatScroll(savedScroll);
 }
 $('#chat-form').onsubmit=run(async event=>{
   event.preventDefault();validateChatText($('#chat-text').value);chatControls();

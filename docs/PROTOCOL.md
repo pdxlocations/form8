@@ -48,7 +48,7 @@ An originating chat event has at most three completed transmissions: initial sen
 
 There are at most 48 queued frames, four outbound body jobs, and three inbound assemblies. Higher precedence wins, with every eighth selection serving the oldest eligible item. Radio transmission uses random inter-frame delay and relay jitter. Queue overflow increments a visible dropped counter; inventories and originating-node retries recover from lost frames.
 
-Scheduling constants are in `lib/Form8Mesh/src/TrafficSchedule.h` and `DeliveryRetry.h`. See [the complete operator-facing timing table](../README.md#automatic-radio-traffic-and-retries) for all transmission reasons.
+Scheduling constants are in `lib/Form8Mesh/src/TrafficSchedule.h` and `DeliveryRetry.h`. See [the complete operator-facing timing table](https://github.com/pdxlocations/form8/wiki/Radio-Traffic) for all transmission reasons.
 
 - Hello: immediate on startup/join/reconfiguration, then 120–150 seconds. New/restarted/changed-incident/offline-returning peers can prompt a response, with a 30-second response cooldown. Online status expires after 10 minutes without a Hello.
 - Quiet inventory: up to eight retained bodies every 300–360 seconds; empty inventories emit no frame. At 200 bodies, one pass takes about 125–150 minutes before congestion.

@@ -36,7 +36,7 @@
 <div id="message-reader" hidden><div class="message-navigation"><button id="message-back" class="secondary">Back to traffic</button><div class="tab-actions"><button id="previous-message" class="secondary" hidden>Previous message</button><button id="next-message" class="secondary" hidden>Next message</button></div></div><article id="form-detail" hidden></article></div>
 </section>
 <section id="chat" class="panel" hidden>
-<div class="section-title"><h2>Incident chat</h2><button type="button" data-refresh="chat" class="secondary">Refresh data</button></div>
+<div class="section-title chat-toolbar"><h2>Incident chat</h2><div class="tab-actions"><button type="button" id="chat-latest" class="secondary">Latest</button><button type="button" id="chat-write" class="secondary">Write</button><button type="button" data-refresh="chat" class="secondary">Refresh data</button></div></div>
 <p class="muted">Short messages for this incident · 200 UTF-8 bytes each. Chat and reactions do not count as queued or unread forms. Radio ACKs confirm storage on another radio, not that a person read the message.</p>
 <div id="chat-list" class="chat-list" role="log" aria-label="Incident chat"></div>
 <p id="chat-context" class="notice" hidden></p><button type="button" id="chat-review" class="secondary" hidden>Use this text in the current incident</button>
