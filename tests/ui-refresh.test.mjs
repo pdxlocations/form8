@@ -1,0 +1,118 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+
+const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
+function harness(){
+  const elements=new Map(),calls=[];
+  function element(){return {hidden:true,children:[],elements:new Proxy({}, {get:(target,key)=>target[key]??=( {value:'',checked:false})}),replaceChildren(){this.children=[];},append(...items){this.children.push(...items);},setAttribute(){}};}
+  const $=selector=>{if(!elements.has(selector))elements.set(selector,element());return elements.get(selector);};
+  let next={callsign:'TEST2',frequency:919.5,peers:[],incident:'42',incidentName:'Test',storageUsed:0,storageTotal:1048576,queue:0,fsReady:true,radioReady:true,txEnabled:true,band:'uhf',board:'Heltec',clockSource:'unset',power:14};
+  let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
+  const context=vm.createContext({$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value)=>({...element(),tag,value}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>calls.push('traffic'),joinIncident(){}});
+  vm.runInContext("let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',offset=0;"+source.slice(source.indexOf('function poll()'),source.indexOf('function deliveryIndicator'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
+  return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};
+}
+
+test('incoming status refreshes counts, visible traffic, incident membership and retained incidents',async()=>{
+  const h=harness();h.$('#traffic').hidden=false;h.$('#incidents').hidden=false;
+  await h.poll();assert.match(h.$('#station').textContent,/0 nearby incident nodes/);
+  h.update({unreadMessages:1,outgoingMessages:2,queue:3,clockSource:'phone/laptop',peers:[{online:true,incident:'42',name:'Test'},{online:true,incident:'99',name:'Other'}]});
+  await h.poll();assert.match(h.$('#station').textContent,/1 nearby incident nodes · 2 nodes heard/);
+  assert.equal(h.$('#message-status').textContent,'1 unread · 2 awaiting radio ACK');
+  assert.equal(h.$('#queue').textContent,'3 queue items');assert.match(h.$('#board-info').textContent,/phone\/laptop/);
+  assert.equal(h.$('#nearby').children.length,2);assert.equal(h.$('#retained').children.length,1);
+  assert.equal(h.calls.filter(c=>c==='traffic').length,2);
+  h.update({peers:[]});await h.poll();assert.match(h.$('#nearby').children[0].value,/No nearby incidents/);
+});
+
+test('open form refreshes body/state without marking other incoming forms read',async()=>{
+  const h=harness();h.$('#traffic').hidden=false;vm.runInContext("selectedForm='abc'",h.context);
+  await h.poll();
+  assert.ok(h.$('#form-detail').children.some(e=>e.value==='New message'));
+  h.setRecord({meta:{id:'abc',state:'offloaded',subject:'Hello'}});await h.poll();
+  assert.ok(h.$('#form-detail').children.some(e=>e.value?.includes('offloaded or discarded')));
+  assert.ok(!h.calls.includes('read'));
+});
+
+test('refresh preserves unsaved settings and clears open message on incident switch',async()=>{
+  const h=harness();await h.poll();h.$('#radio-settings').elements.callsign.value='EDITING';
+  vm.runInContext("settingsDirty=true;selectedForm='abc';offset=20",h.context);
+  h.update({incident:'99',incidentName:'Other',callsign:'REMOTE'});await h.poll();
+  assert.equal(h.$('#radio-settings').elements.callsign.value,'EDITING');
+  assert.equal(vm.runInContext('selectedForm',h.context),null);assert.equal(vm.runInContext('offset',h.context),0);
+  assert.equal(h.$('#active-name').textContent,'Other');assert.equal(h.$('#form-detail').hidden,true);
+});
+
+test('concurrent refresh callers await the same update',async()=>{
+  const h=harness();const a=h.poll(),b=h.poll();assert.equal(a,b);await Promise.all([a,b]);
+  assert.equal(h.calls.filter(c=>c==='status').length,1);
+});
+
+test('every tab has a refresh button that updates data without navigation or resetting edits',async()=>{
+  const html=readFileSync(new URL('../web/index.html',import.meta.url),'utf8');
+  for(const tab of ['compose','traffic','incidents','archive','settings'])assert.ok(html.includes(`data-refresh="${tab}"`));
+  const h=harness();
+  h.context.draftList=async()=>h.calls.push('drafts');h.context.loadArchives=async()=>h.calls.push('archives');
+  vm.runInContext(source.slice(source.indexOf('async function refreshData'),source.indexOf('for(const refresh of')),h.context);
+  h.$('#incidents').hidden=false;
+  await vm.runInContext("refreshData('incidents')",h.context);
+  assert.equal(h.$('#incidents').hidden,false);assert.equal(h.$('#compose').hidden,true);
+  h.$('#radio-settings').elements.callsign.value='UNSAVED';vm.runInContext('settingsDirty=true',h.context);
+  await vm.runInContext("refreshData('settings')",h.context);
+  assert.equal(h.$('#radio-settings').elements.callsign.value,'UNSAVED');
+  await vm.runInContext("refreshData('compose')",h.context);assert.ok(h.calls.includes('drafts'));
+  await vm.runInContext("refreshData('archive')",h.context);assert.ok(h.calls.includes('archives'));
+});
+
+test('message reader hides the list, navigates across pages, and Back restores its page',async()=>{
+  const h=harness();h.$('#traffic').hidden=false;
+  const forms=Array.from({length:21},(_,i)=>({id:String(i).padStart(32,'0'),subject:`Message ${i}`,sender:'TEST1',recipient:'*',priority:0,state:'stored'}));
+  h.context.api=async(path)=>{
+    h.calls.push(path);
+    const url=new URL(path,'http://radio/');
+    if(url.pathname==='/forms'){
+      const index=forms.findIndex(m=>m.id===url.searchParams.get('selected'));
+      const offset=index>=0?Math.floor(index/20)*20:Number(url.searchParams.get('offset'));
+      return {forms:forms.slice(offset,offset+20),total:forms.length,offset,previous:index>0?forms[index-1].id:null,next:index>=0&&index<forms.length-1?forms[index+1].id:null};
+    }
+    if(url.pathname==='/form')return {meta:forms.find(m=>m.id===url.searchParams.get('id')),body:JSON.stringify({message:'Test body'})};
+    if(path==='read')return {saved:true};
+    throw Error(path);
+  };
+  h.context.priorities=['Routine'];h.context.deliveryStatus=()=>({complete:false,label:'Awaiting radio ACK'});
+  vm.runInContext('let total=0;'+source.slice(source.indexOf('async function loadTraffic()'),source.indexOf('function renderForm(')),h.context);
+  // Exercise actual list/reader refresh logic, without unrelated status fields.
+  h.context.poll=async()=>{await vm.runInContext('loadTraffic()',h.context);return true;};
+  await vm.runInContext(`openForm('${forms[19].id}')`,h.context);
+  assert.equal(h.$('#traffic-overview').hidden,true);assert.equal(h.$('#message-reader').hidden,false);
+  assert.equal(h.$('#previous-message').hidden,false);assert.equal(h.$('#next-message').hidden,false);
+  assert.ok(!h.$('#traffic-list').children[0].children.some(e=>e.className==='delivery'));
+  await h.$('#next-message').onclick();
+  assert.equal(vm.runInContext('selectedForm',h.context),forms[20].id);assert.equal(vm.runInContext('offset',h.context),20);
+  assert.equal(h.$('#next-message').hidden,true);assert.equal(h.$('#previous-message').hidden,false);
+  await h.$('#message-back').onclick();
+  assert.equal(h.$('#traffic-overview').hidden,false);assert.equal(h.$('#message-reader').hidden,true);
+  assert.equal(vm.runInContext('offset',h.context),20);assert.equal(h.$('#traffic-list').children.length,1);
+  await vm.runInContext(`openForm('${forms[0].id}')`,h.context);
+  assert.equal(h.$('#previous-message').hidden,true);assert.equal(h.$('#next-message').hidden,false);
+  forms.splice(1);await vm.runInContext('loadTraffic()',h.context);
+  assert.equal(h.$('#previous-message').hidden,true);assert.equal(h.$('#next-message').hidden,true);
+});
+
+test('acknowledge button reflects this node’s saved human acknowledgment',async()=>{
+  const h=harness();vm.runInContext("status={node:'self'};selectedForm='abc'",h.context);
+  const render=receipts=>{
+    h.context.record={meta:{id:'abc',receipts},body:JSON.stringify({message:'Test'})};
+    vm.runInContext('renderForm(record)',h.context);
+    return h.$('#form-detail').children.find(e=>e.children?.some(c=>c.label==='Acknowledge'||c.label==='Acknowledged')).children[0];
+  };
+  let button=render([{id:'other',human:true},{id:'self',human:false}]);
+  assert.equal(button.textContent,'Acknowledge');assert.equal(button.disabled,false);
+  h.context.api=async()=>({saved:true});h.context.poll=async()=>true;
+  await button.onclick();assert.equal(button.textContent,'Acknowledged');assert.equal(button.disabled,true);
+  button=render([{id:'self',human:true}]);assert.equal(button.textContent,'Acknowledged');assert.equal(button.disabled,true);
+  button=render([{id:'self',human:false}]);h.context.api=async()=>{throw Error('Cannot save');};
+  await assert.rejects(button.onclick(),/Cannot save/);assert.equal(button.textContent,'Acknowledge');assert.equal(button.disabled,false);
+});

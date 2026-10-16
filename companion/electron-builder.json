@@ -1,0 +1,10 @@
+{
+  "appId": "org.form8.radio",
+  "productName": "Form8",
+  "directories": {"output": "release"},
+  "files": ["web/**/*", "companion/desktop.cjs", "package.json"],
+  "extraMetadata": {"main": "companion/desktop.cjs"},
+  "mac": {"target": ["dmg"], "category": "public.app-category.utilities"},
+  "win": {"target": ["nsis"]},
+  "linux": {"target": ["AppImage"], "category": "Utility"}
+}

@@ -1,0 +1,11 @@
+.pio/
+node_modules/
+dist/
+.DS_Store
+tmp/
+companion/android/
+companion/ios/
+android/
+ios/
+release/
+*.local.json

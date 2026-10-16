@@ -1,0 +1,8 @@
+{
+  "appId": "org.form8.radio",
+  "appName": "Form8",
+  "webDir": "dist/mobile",
+  "server": {"androidScheme": "http", "cleartext": true},
+  "plugins": {"CapacitorHttp": {"enabled": true}},
+  "ios": {"contentInset": "automatic"}
+}

@@ -1,0 +1,28 @@
+{
+  "name": "form8-radio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Plaintext incident form messaging for ESP32 LoRa radios",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "test:mesh": "python3 tools/test_mesh.py",
+    "dev": "node tools/dev-server.mjs",
+    "desktop": "electron companion/desktop.cjs",
+    "desktop:package": "electron-builder --config companion/electron-builder.json",
+    "mobile:prepare": "node tools/prepare-mobile.mjs",
+    "mobile:sync": "npm run mobile:prepare && cap sync"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/geolocation": "^7.0.0",
+    "@capacitor/ios": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
+    "electron": "^44.7.0",
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.25.0"
+  }
+}
