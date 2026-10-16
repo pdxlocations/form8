@@ -1,0 +1,8 @@
+.page-links{display:flex;gap:16px;flex-wrap:wrap;font-size:12px}
+.map-intro{padding:12px 0}.map-intro h1{font-size:26px;margin:0 0 12px;max-width:720px}
+.map-intro p{max-width:850px}.map-steps{padding-left:24px;margin:12px 0 18px;max-width:850px}.map-steps li{margin:8px 0}
+#map-place{max-width:640px}#location-status{margin-top:8px}.map-actions{margin-top:12px}
+#map-download-status{margin-top:12px}.download-section{border-top:1px solid var(--border);padding-top:16px;margin-top:16px}
+.download-section select,#appearance{max-width:320px}.map-help{padding:24px 0 8px;max-width:850px}
+#node-map{height:400px}code{overflow-wrap:anywhere}
+@media(max-width:640px){.map-intro h1{font-size:23px}.page-links{gap:8px;justify-content:flex-end}#node-map{height:300px}.actions button{white-space:normal}.map-help{padding-top:18px}}

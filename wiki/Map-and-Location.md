@@ -35,13 +35,16 @@ Forms still attach coordinates only when you choose **Use current location** in 
 
 The built-in basemap is **USGS Topo**, with detailed coverage for the **United States**. Its [service metadata permits tile exports](https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer?f=pjson). Outside U.S. coverage, station coordinates still work, but this basemap may not provide useful local detail. No external map library or internet connection is needed to draw station markers.
 
-1. Open Form8 on the phone or laptop you will use in the field, while it has internet access. The desktop/mobile companion can prepare maps before connecting to a radio. Developers can also use the [local demo](Demo) to prepare and export a file.
-2. Open **Map → Offline maps**. If no location is available, enter the area's latitude/longitude and click **Go to coordinates**. For Portland, try `45.52`, `-122.68`.
-3. Move and zoom the map until your area fits on screen.
+1. While connected to internet Wi-Fi or cellular data, open **[form8.pdxlocs.com/maps.html](https://form8.pdxlocs.com/maps.html)**. The installer also links to this downloader. It is available after the updated `webflasher/` folder has been uploaded to DreamHost; no radio connection is needed.
+2. Click **Use my location**, or enter the area's latitude/longitude and click **Go to coordinates**. For Portland, try `45.52`, `-122.68`. Location permission is optional.
+3. Move and zoom the map until your area fits on screen. Enable **Move map** to drag; turn it off to scroll the page normally.
 4. Choose **Offline detail**: current zoom, one level closer, or two levels closer. Two levels closer is the default. Zoom is capped at 16.
 5. Click **Download visible area**. Keep the page open until it says **Ready offline**. Downloads include the visible area at the selected detail and overview levels down to zoom 8 (or the current zoom if lower).
-6. Connect to the radio hotspot and open Map. Turn off **Load map tiles from the internet when available** for offline-only use. Previously downloaded tiles load from local storage automatically.
-7. Check the area at the zoom levels you need before leaving. Zooming beyond the saved detail or panning outside the downloaded area shows an empty grid; station markers and coordinates remain visible.
+6. Click **Export map** and save `form8-offline-map.json` in Files/Downloads. If preparing on a laptop for a phone, transfer the file to the phone.
+7. Connect your phone/laptop to the radio hotspot, open `http://192.168.4.1`, and choose **Map → Offline maps → Import saved map**. Select the saved JSON file. **The website and radio page have separate browser storage; this import is required even on the same phone.**
+8. Turn off **Load map tiles from the internet when available** for offline-only use. Check the area and zoom levels you need before leaving. Zooming beyond the saved detail or panning outside the downloaded area shows an empty grid; station markers and coordinates remain visible.
+
+The desktop/mobile companion or [local demo](Demo) can also prepare maps while it has internet access. In those interfaces, use **Map → Offline maps**. Export/import is needed when moving the map to a different browser/app/origin; a companion can use its own saved tiles directly after connecting to a radio.
 
 **Storage limits:** at most **400 tiles / 32 MB** are saved per browser/app. Larger areas require less detail, or downloading a smaller area. **Cancel download** keeps completed tiles, and retrying resumes by skipping tiles already saved. A failed download clearly says it is incomplete. **Remove saved maps** deletes only map tiles on this device, after confirmation.
 

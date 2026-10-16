@@ -15,6 +15,21 @@ No Node server, database, cron job, build step, GitHub token, or DreamHost crede
 
 The default repository is set in `config.php`. If you fork Form8, change it there and update the GitHub links in `index.html` and `app.js`.
 
+## Prepare maps without a radio
+
+After uploading this folder, open **https://form8.pdxlocs.com/maps.html**, or follow **Open the offline map downloader** from the installer. It works in a modern phone or desktop browser and does not require Web Serial, a radio connection, PHP requests, or GitHub releases. HTTPS is required for optional phone/browser location access; entering coordinates works without that permission.
+
+1. Stay connected to internet Wi-Fi or cellular data.
+2. Use **Use my location** or enter latitude/longitude and click **Go to coordinates**. The default example is Portland (`45.52`, `-122.68`).
+3. Zoom and move the map so the required area fits. Choose **Offline detail**.
+4. Click **Download visible area** and wait for **Ready offline**.
+5. Click **Export map** and save `form8-offline-map.json` in Files/Downloads. If preparing on a laptop for a phone, transfer this file to the phone.
+6. Connect the field device to the radio’s Wi-Fi, open `http://192.168.4.1`, then **Map → Offline maps → Import saved map** and select the file. The radio must run firmware with map support.
+
+The downloader uses USGS topo tiles with U.S. coverage and the same 400-tile / 32 MB limits as the radio app. Tiles are fetched directly from the USGS HTTPS service; they do not pass through DreamHost or the radio. **Browser storage is separate for this website and the radio's address. Export/import is required even on the same phone.** The exported file contains tiles and the chosen map view; it does not contain station positions. The page supports resuming partial downloads, canceling, importing older map files, removing saved tiles, and light/dark appearance.
+
+Upload `maps.html`, `maps.js`, `maps.css`, and the entire **`map-assets/`** subfolder alongside the installer files. The checked-in `map-assets` are copies of the radio app's map code so uploads need no build step. After changing shared map code, run **`npm run webflasher:prepare`** before uploading; `npm test` checks that these copies match. Do not edit generated map assets directly.
+
 ## How a visitor installs
 
 1. Connect the radio with a USB **data** cable. Close serial monitors. Use desktop Chrome or Edge.

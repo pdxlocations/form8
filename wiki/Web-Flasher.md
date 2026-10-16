@@ -18,3 +18,7 @@ If the radio does not appear, try another data cable or USB port. If needed, hol
 The website detects the ESP32-S3 processor, but cannot identify your board model or radio chip for you. See the [board guide](https://github.com/pdxlocations/form8/wiki/Board-Guide) if you are unsure which build to select.
 
 To host the installer at `form8.pdxlocs.com`, upload the **contents** of this project's `webflasher/` folder to that subdomain's DreamHost web directory, with PHP 8.1+ and HTTPS enabled. See the [web flasher hosting instructions](https://github.com/pdxlocations/form8/wiki/Web-Flasher-Hosting) for the complete setup and troubleshooting steps. New GitHub releases appear automatically; firmware files do not need to be uploaded to DreamHost.
+
+## Download maps before joining the radio’s Wi-Fi
+
+Use the installer’s **Open the offline map downloader** link, or open **[form8.pdxlocs.com/maps.html](https://form8.pdxlocs.com/maps.html)** after the updated webflasher folder is uploaded. Choose an area, download its tiles, and **Export map** while you have internet. After connecting to the radio, use **Map → Offline maps → Import saved map** to select that JSON file. No radio or USB connection is needed to prepare maps. See [the complete map instructions](Map-and-Location).

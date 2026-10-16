@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#15382e">
+  <meta name="description" content="Download U.S. topo maps before connecting to a Form8 radio, then export them for offline use.">
+  <title>Form8 · Offline map downloader</title>
+  <script src="map-assets/theme.js"></script>
+  <link rel="stylesheet" href="map-assets/style.css">
+  <link rel="stylesheet" href="maps.css">
+  <script type="module" src="maps.js"></script>
+</head>
+<body>
+  <header><div class="brand"><strong>FORM8</strong><small>Offline map downloader</small></div><div class="page-links"><a href="./">Radio installer</a><a href="https://github.com/pdxlocations/form8" target="_blank" rel="noopener">GitHub</a></div></header>
+  <main>
+    <section class="map-intro">
+      <h1>Prepare a map before connecting to your radio</h1>
+      <p>Use this page on your phone or laptop while it has internet access. Download your area, save the map file, then import it into Form8 after joining the radio’s Wi-Fi.</p>
+      <ol class="map-steps">
+        <li><strong>Choose your area.</strong> Use your location or enter coordinates. Zoom and move the map until the area you need fits on screen.</li>
+        <li><strong>Download and export.</strong> Choose the detail, click Download visible area, wait for Ready offline, then click Export map. Keep the JSON file in Files or Downloads.</li>
+        <li><strong>Import on the radio.</strong> Connect to its Wi-Fi, open <code>http://192.168.4.1</code>, then choose <strong>Map → Offline maps → Import saved map</strong> and select that file.</li>
+      </ol>
+      <p class="notice">Saving tiles on this website does not make them available on the radio’s webpage automatically. <strong>Export the map file and import it there.</strong> If you prepare it on a laptop for a phone, transfer the file to the phone first.</p>
+    </section>
+    <p id="feedback" role="status" hidden></p>
+    <section id="map" class="panel" aria-labelledby="area-heading">
+      <h2 id="area-heading">1. Choose an area</h2>
+      <p class="muted">USGS topo maps cover the United States. No radio or USB connection is required.</p>
+      <form id="map-place">
+        <div class="grid"><label>Latitude<input id="map-lat" type="number" min="-85" max="85" step="any" required value="45.52" autocomplete="off"></label><label>Longitude<input id="map-lon" type="number" min="-180" max="180" step="any" required value="-122.68" autocomplete="off"></label></div>
+        <div class="actions"><button class="secondary">Go to coordinates</button><button type="button" id="locate" class="secondary">Use my location</button></div>
+      </form>
+      <p id="location-status" class="muted" role="status">Example coordinates: Portland, Oregon. Location access is optional.</p>
+      <div class="actions map-actions"><button type="button" id="map-zoom-out" class="secondary" aria-label="Zoom out">−</button><button type="button" id="map-zoom-in" class="secondary" aria-label="Zoom in">+</button><label class="inline"><input type="checkbox" id="map-pan">Move map</label><button type="button" id="map-center" class="secondary" hidden>Center on my location</button></div>
+      <p class="muted">Enable Move map to drag. Leave it off to scroll the page. Keyboard: focus the map, then use arrows to move and +/− to zoom.</p>
+      <canvas id="node-map" tabindex="0" role="img" aria-label="Map download area. Choose its center using the coordinate fields above, then move or zoom the map."></canvas>
+      <p id="map-view-status" class="muted"></p>
+      <p class="map-attribution"><a href="https://www.usgs.gov/programs/national-geospatial-program/national-map" target="_blank" rel="noopener">USGS The National Map</a> · U.S. topo basemap</p>
+      <ul id="map-nodes" class="map-nodes" hidden></ul>
+      <div class="download-section">
+        <h2>2. Download and save a map file</h2>
+        <p class="muted">The visible area is saved at the selected detail and overview zoom levels. More detail needs more tiles. Limits: 400 saved tiles / 32 MB per browser.</p>
+        <label>Offline detail<select id="map-detail"><option value="0">Current zoom</option><option value="1">One level closer</option><option value="2" selected>Two levels closer</option></select></label>
+        <div class="actions"><button type="button" id="map-download">Download visible area</button><button type="button" id="map-cancel" class="secondary" hidden>Cancel download</button><button type="button" id="map-export" class="secondary">Export map</button></div>
+        <p id="map-download-status" role="status" class="muted">Keep this page open until the download finishes, then export your map.</p>
+        <p id="map-storage" class="muted"></p>
+      </div>
+      <details><summary>Saved maps and display options</summary>
+        <p class="muted">Downloads stay in this browser. Canceling or a failed download keeps completed tiles; downloading the same area again skips saved tiles. Clearing browser data can remove them, so keep the exported file.</p>
+        <label class="inline"><input type="checkbox" id="map-online" checked>Load map tiles from the internet when available</label>
+        <label>Import a previously exported map<input id="map-import" type="file" accept="application/json,.json"></label>
+        <button type="button" id="map-delete" class="danger">Remove saved maps</button>
+        <label>Appearance<select id="appearance"><option value="system">System (device default)</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      </details>
+    </section>
+    <section class="map-help"><h2>3. Import after connecting to the radio</h2><p>On the device you will use in the field, join the radio’s Wi-Fi and open <code>http://192.168.4.1</code>. In <strong>Map → Offline maps → Import saved map</strong>, choose <code>form8-offline-map.json</code>. Check the saved area and zoom levels before leaving.</p><p><a href="https://github.com/pdxlocations/form8/wiki/Map-and-Location" target="_blank" rel="noopener">Full map and location instructions</a></p></section>
+    <noscript><p class="notice">Enable JavaScript to choose an area and download map tiles.</p></noscript>
+  </main>
+  <footer>Form8 · <a href="./">Radio installer</a> · <a href="https://github.com/pdxlocations/form8" target="_blank" rel="noopener">Project on GitHub</a></footer>
+</body>
+</html>

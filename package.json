@@ -10,6 +10,7 @@
     "dev": "node tools/dev-server.mjs",
     "desktop": "electron companion/desktop.cjs",
     "desktop:package": "electron-builder --config companion/electron-builder.json",
+    "webflasher:prepare": "node tools/prepare-webflasher.mjs",
     "mobile:prepare": "node tools/prepare-mobile.mjs",
     "mobile:sync": "npm run mobile:prepare && cap sync",
     "test:display": "python3 tools/test_display.py",
