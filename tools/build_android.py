@@ -1,5 +1,6 @@
 """Build the installable Form8 Android development APK (JDK 21+, Android SDK 35)."""
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -22,4 +23,7 @@ subprocess.run([wrapper,':app:assembleDebug',':app:lintDebug',':app:testDebugUni
 output = ROOT/'dist/form8-android-debug.apk'
 shutil.copy2(ROOT/'android/app/build/outputs/apk/debug/app-debug.apk',output)
 output.with_suffix('.apk.sha256').write_text(f'{hashlib.sha256(output.read_bytes()).hexdigest()}  {output.name}\n')
-print(f'Installable development APK: {output}')
+app_build=json.loads((ROOT/'dist/mobile/build-info.json').read_text())['appBuild']
+versioned=ROOT/f'dist/form8-android-{app_build}.apk'
+shutil.copy2(output,versioned)
+print(f'Installable development APK: {output}\nApp build {app_build}: {versioned}')

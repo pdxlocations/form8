@@ -41,3 +41,9 @@ Follow [nRF52 and Android](https://github.com/pdxlocations/form8/wiki/nRF52-and-
 - **App connects but data does not load:** use the matching updated APK and firmware. ESP32 uses the radio API over BLE; older app versions only understand companion-owned nRF storage.
 - **Lost app connection:** the node returns to Wi-Fi after disconnect/idle timeout. Open Form8 and tap Connect again, or join the restored hotspot in a browser.
 - **Filesystem upload needed?** No. Bluetooth support and the updated webpage are embedded in the ESP32 application image. Preserve existing storage with an ordinary app-only update.
+
+## Unknown operation or Bluetooth write timeouts
+
+The Android app cancels queued requests when the Bluetooth connection changes. This prevents commands left over from another radio connection from being sent to the new node. It also waits for both a radio response and Android’s final GATT write callback before starting the next request, because the response notification can arrive first.
+
+Install the updated APK over the existing app; these app fixes do not require erasing app data or reflashing the radio. In Settings → Radio connection, check **Android app build** to identify the installed package. The download also has a filename containing that build identifier. Errors now include the request, for example `Radio http GET /api/status: Unknown operation`, rather than only `Unknown operation`. If that specific error persists with updated firmware and app, retain the complete error text for diagnosis.
