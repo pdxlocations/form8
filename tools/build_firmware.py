@@ -60,9 +60,14 @@ for environment in args.targets:
                 fs_offset,fs_size=offset,size
     if app_size is None or source.stat().st_size>app_size:
         raise SystemExit(f'Firmware does not fit the app partition for {environment}')
+    layout = json.loads((source.parent / 'flash-layout.json').read_text())
+    families = {'esp32': 'ESP32', 'esp32s3': 'ESP32-S3'}
+    chip_family = families.get(layout['chip'])
+    if not chip_family or target.get('chipFamily', chip_family) != chip_family:
+        raise SystemExit(f'Processor family mismatch for {environment}')
     filename = f'form8-{environment}.bin'
     shutil.copyfile(source, stage / filename)
-    entry = {**target, 'file': filename, 'kind': 'app-only', 'flashOffset': '0x10000',
+    entry = {**target, 'chipFamily': chip_family, 'file': filename, 'kind': 'app-only', 'flashOffset': '0x10000',
                      'bytes': source.stat().st_size, 'sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
                      'hardwareValidated': False}
     checksums.append((filename, entry['sha256']))
@@ -70,7 +75,7 @@ for environment in args.targets:
         build = source.parent
         layout = json.loads((build / 'flash-layout.json').read_text())
         filesystem = build / 'littlefs.bin'
-        if layout['chip'] != 'esp32s3' or not layout['images'] or fs_offset is None or not filesystem.exists() or filesystem.stat().st_size != fs_size:
+        if layout['chip'] not in ('esp32', 'esp32s3') or not layout['images'] or fs_offset is None or not filesystem.exists() or filesystem.stat().st_size != fs_size:
             raise SystemExit(f'Missing or invalid factory inputs for {environment}; build firmware and buildfs first.')
         factory_name = f'form8-{environment}-factory.bin'
         factory = stage / factory_name
@@ -93,7 +98,7 @@ for environment in args.targets:
 (stage / 'SHA256SUMS').write_text(''.join(f'{checksum}  {filename}\n' for filename, checksum in checksums))
 (stage / 'README.txt').write_text(
     'Form8 ESP32 firmware builds\n\n'
-    'Regular .bin files are app-only updates at ESP32-S3 offset 0x10000.\n'
+    'Regular .bin files are app-only updates at offset 0x10000 on ESP32 and ESP32-S3.\n'
     'When present, -factory.bin files are first-install images at offset 0; they ERASE saved data.\n'
     'Choose the exact board, radio chip, and Heltec V4 FEM revision in manifest.json.\n'
     'Build success does not establish hardware operation, RF performance, or battery accuracy.\n\n'

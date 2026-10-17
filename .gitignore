@@ -6,7 +6,6 @@ dist/
 tmp/
 companion/android/
 companion/ios/
-android/
 ios/
 release/
 *.local.json

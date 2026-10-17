@@ -33,7 +33,7 @@ function updateControls() {
   $('prepare').disabled = !supported || loading || preparing || !selectedImage()
     || !$('confirm-board').checked || (factory() && !$('confirm-erase').checked);
   $('prepare').hidden = !$('install-area').hidden;
-  if (target) $('board-info').textContent = `${target.radio} · ${target.flashMiB} MB flash${target.experimental ? ' · EXPERIMENTAL target' : ''}. Check your physical board: USB cannot distinguish these board variants.`;
+  if (target) $('board-info').textContent = `${target.chipFamily||"ESP32-S3"} · ${target.radio} · ${target.flashMiB} MB flash${target.experimental ? ' · EXPERIMENTAL target' : ''}. Check your physical board: USB cannot distinguish these board variants.`;
 }
 async function getJSON(url) {
   const response = await fetch(url, {cache: 'no-store'});

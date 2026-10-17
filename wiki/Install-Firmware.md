@@ -1,6 +1,8 @@
 # Install firmware for the first time
 
-Published GitHub releases include binaries for all seven configured targets, a ZIP bundle, `SHA256SUMS`, and a board manifest. See [release builds and board selection](https://github.com/pdxlocations/form8/wiki/Releases). Regular binaries are app-only updates; separate `-factory.bin` images support first installation and replace saved data.
+**Using an nRF52840 board?** Follow [nRF52 and Android setup](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) instead. The instructions below apply to ESP32.
+
+Published GitHub releases include binaries for all configured targets, a ZIP bundle, `SHA256SUMS`, and a board manifest. See [release builds and board selection](https://github.com/pdxlocations/form8/wiki/Releases). Regular binaries are app-only updates; separate `-factory.bin` images support first installation and replace saved data.
 
 For installation in your browser, use the [web flasher instructions above](https://github.com/pdxlocations/form8/wiki/Web-Flasher). The steps below use PlatformIO instead.
 

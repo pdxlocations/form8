@@ -1,9 +1,14 @@
 [
-  {"environment":"heltec-v3","board":"Heltec WiFi LoRa 32 V3","radio":"SX1262","flashMiB":8,"partitions":"partitions/heltec.csv","oled":true,"battery":true},
-  {"environment":"heltec-v4","board":"Heltec WiFi LoRa 32 V4.2 OLED (GC1109 FEM)","radio":"SX1262","flashMiB":16,"partitions":"partitions/bpf.csv","oled":true,"battery":true},
-  {"environment":"heltec-v4-3","board":"Heltec WiFi LoRa 32 V4.3 OLED (KCT8103L FEM)","radio":"SX1262","flashMiB":16,"partitions":"partitions/bpf.csv","oled":true,"battery":true},
-  {"environment":"seeed-xiao-s3","board":"Seeed XIAO ESP32S3 + Wio-SX1262 B2B module","radio":"SX1262","flashMiB":8,"partitions":"partitions/heltec.csv","oled":false,"battery":false},
-  {"environment":"tlora-t3-s3","board":"LILYGO T3-S3 868/915 MHz SX1262","radio":"SX1262","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true},
-  {"environment":"tlora-t3-s3-sx1276","board":"LILYGO T3-S3 868/915 MHz SX1276","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true},
-  {"environment":"tbeam-bpf","board":"LILYGO T-Beam BPF (experimental VHF)","radio":"SX1262","flashMiB":16,"partitions":"partitions/bpf.csv","oled":false,"battery":false,"experimental":true}
+  {"environment":"heltec-v3","board":"Heltec WiFi LoRa 32 V3","radio":"SX1262","flashMiB":8,"partitions":"partitions/heltec.csv","oled":true,"battery":true,"chipFamily":"ESP32-S3"},
+  {"environment":"heltec-v4","board":"Heltec WiFi LoRa 32 V4.2 OLED (GC1109 FEM)","radio":"SX1262","flashMiB":16,"partitions":"partitions/bpf.csv","oled":true,"battery":true,"chipFamily":"ESP32-S3"},
+  {"environment":"heltec-v4-3","board":"Heltec WiFi LoRa 32 V4.3 OLED (KCT8103L FEM)","radio":"SX1262","flashMiB":16,"partitions":"partitions/bpf.csv","oled":true,"battery":true,"chipFamily":"ESP32-S3"},
+  {"environment":"seeed-xiao-s3","board":"Seeed XIAO ESP32S3 + Wio-SX1262 B2B module","radio":"SX1262","flashMiB":8,"partitions":"partitions/heltec.csv","oled":false,"battery":false,"chipFamily":"ESP32-S3"},
+  {"environment":"tlora-t3-s3","board":"LILYGO T3-S3 868/915 MHz SX1262","radio":"SX1262","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"chipFamily":"ESP32-S3"},
+  {"environment":"tlora-t3-s3-sx1276","board":"LILYGO T3-S3 868/915 MHz SX1276","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"chipFamily":"ESP32-S3"},
+  {"environment":"tbeam-bpf","board":"LILYGO T-Beam BPF (experimental VHF)","radio":"SX1278","flashMiB":16,"partitions":"partitions/bpf.csv","oled":false,"battery":false,"experimental":true,"chipFamily":"ESP32-S3"},
+  {"environment":"tbeam","board":"LILYGO T-Beam V1.x ESP32 (AXP192/AXP2101, SX1276)","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"gps":true,"chipFamily":"ESP32"},
+  {"environment":"tbeam-sx1262","board":"LILYGO T-Beam V1.x ESP32 (AXP192/AXP2101, SX1262)","radio":"SX1262","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"gps":true,"chipFamily":"ESP32"},
+  {"environment":"tlora-v1","board":"TTGO T-LoRa V1 ESP32 (OLED 4/15, SX1276)","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":false,"gps":false,"chipFamily":"ESP32"},
+  {"environment":"tlora-v1-3","board":"LILYGO T-LoRa T3 V1.3 ESP32 (reset14, SX1276)","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"gps":false,"chipFamily":"ESP32"},
+  {"environment":"tlora-v2-1","board":"LILYGO LoRa32 V2.1 / T3 V1.6 ESP32 (reset23, SX1276)","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"gps":false,"chipFamily":"ESP32"}
 ]

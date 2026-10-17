@@ -1,0 +1,56 @@
+[
+  {
+    "environment": "rak4631",
+    "board": "RAK4631 / WisBlock",
+    "radio": "SX1262",
+    "gps": "optional WisBlock GPS"
+  },
+  {
+    "environment": "wismesh-tag",
+    "board": "RAK WisMesh Tag",
+    "radio": "SX1262",
+    "gps": "onboard"
+  },
+  {
+    "environment": "t-echo",
+    "board": "LILYGO T-Echo",
+    "radio": "SX1262",
+    "gps": "onboard"
+  },
+  {
+    "environment": "heltec-t114",
+    "board": "Heltec Mesh Node T114",
+    "radio": "SX1262",
+    "gps": "optional GPS expansion"
+  },
+  {
+    "environment": "heltec-t096",
+    "board": "Heltec Mesh Node T096",
+    "radio": "SX1262 + KCT8103L FEM",
+    "gps": "onboard"
+  },
+  {
+    "environment": "seeed-wio-tracker-l1",
+    "board": "Seeed Wio Tracker L1",
+    "radio": "SX1262",
+    "gps": "onboard"
+  },
+  {
+    "environment": "seeed-xiao-nrf52-kit",
+    "board": "Seeed XIAO nRF52840 + standalone Wio-SX1262",
+    "radio": "SX1262",
+    "gps": "phone"
+  },
+  {
+    "environment": "seeed-t1000-e",
+    "board": "Seeed SenseCAP T1000-E",
+    "radio": "LR1110",
+    "gps": "onboard"
+  },
+  {
+    "environment": "seeed-solar-node",
+    "board": "Seeed Solar Node",
+    "radio": "SX1262",
+    "gps": "onboard"
+  }
+]

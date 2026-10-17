@@ -10,7 +10,7 @@ Form8 can show your station and other stations in the active incident on a map. 
 4. Open **Map** (folded map icon). Your marker is blue. Other incident stations are orange; old positions are gray. The list below the map shows coordinates, location source, approximate report age, and accuracy when available.
 5. Use **My location**, **+**, and **−** to navigate. Tap a station in the list to center it. Enable **Move map** to drag; turn it off to scroll the page normally. With the map focused, keyboard arrows move it and +/− zoom.
 
-The T-Beam BPF target reads its onboard L76K GPS at 9600 baud and enables its AXP2101 ALDO4 GPS power supply. This remains experimental and needs physical-board testing. Other current targets have no integrated GPS and use phone/laptop positioning. GPS expansion modules are not automatically detected.
+The T-Beam BPF target reads its onboard L76K GPS at 9600 baud and enables its AXP2101 ALDO4 GPS power supply. This remains experimental and needs physical-board testing. The original ESP32 T-Beam V1.x targets also read onboard GPS (RX34/TX12, 9600 baud), with automatic AXP192/AXP2101 power detection and GPS rail enable. Other current targets have no integrated GPS and use phone/laptop positioning. GPS expansion modules are not automatically detected.
 
 **Phone GPS in a browser:** most browsers block location access at the radio's plain `http://192.168.4.1` address. Use the mobile companion app (with location permission), or a supported secure/localhost client. Onboard GPS works independently of browser permissions. The app explains when phone GPS is unavailable; **Retry GPS** tries again after you change permissions. A laptop may have no location fix. GPS often needs a clear view of the sky.
 

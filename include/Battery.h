@@ -5,7 +5,13 @@
 
 struct BatteryReading { uint16_t millivolts=0; };
 inline BatteryReading& batteryReading(){static BatteryReading reading;return reading;}
-#if defined(FORM8_HAS_BATTERY)
+#if defined(FORM8_HAS_PMU_BATTERY)
+#include <TBeamPower.h>
+inline void updateBattery(uint32_t now){
+  static uint32_t next=0;if(int32_t(now-next)<0)return;next=now+5000;
+  const uint16_t mv=tBeamBatteryMillivolts();batteryReading().millivolts=plausibleBatteryVoltage(mv)?mv:0;
+}
+#elif defined(FORM8_HAS_BATTERY)
 // Heltec V3 schematics: GPIO1, 390k/100k divider, GPIO37 control.
 // V3.2 changed the enable polarity. The board's resistor bias is the off level.
 // https://docs.heltec.org/en/node/esp32/wifi_lora_32/hardware_update_log.html

@@ -110,7 +110,9 @@ export function createMapPanel({onError}){
       const data=[];
       for(const tile of tiles){const bytes=new Uint8Array(await tile.blob.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));data.push({id:tile.id,type:tile.blob.type,data:btoa(binary)});}
       const blob=new Blob([JSON.stringify({format:'form8-map-v1',provider:'usgs-topo',view:{...center,zoom},tiles:data})],{type:'application/json'});
-      const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='form8-offline-map.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);note('Map exported. Import this file in Form8 after connecting to your radio.');
+      if(globalThis.Form8Native?.saveFile)await Form8Native.saveFile(blob,'form8-offline-map.json');
+      else {const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download='form8-offline-map.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);}
+      note('Map exported. Import this file in Form8 after connecting to your radio.');
     }finally{setBusy(false);}
   });
   $('map-import').onchange=task(async()=>{

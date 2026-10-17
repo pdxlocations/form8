@@ -2,25 +2,37 @@
 #include <Arduino.h>
 #include <RadioLib.h>
 #include <BoardConfig.h>
+#include <TBeamPower.h>
 
 #if defined(FORM8_TBEAM_BPF)
 SX1278 radio=new Module(RADIO_CS,RADIO_IRQ,RADIO_RESET,RADIO_BUSY);
 inline void boardPower() {pinMode(16,OUTPUT);digitalWrite(16,HIGH);pinMode(39,OUTPUT);digitalWrite(39,HIGH);delay(20);}
 inline int16_t radioBegin(float freq,float bw,uint8_t sf,uint8_t cr,int8_t power) {
-  if(power>10)return RADIOLIB_ERR_INVALID_OUTPUT_POWER;
+  if(!validTxPower(power))return RADIOLIB_ERR_INVALID_OUTPUT_POWER;
   int16_t result=radio.begin(freq,bw,sf,cr,0x12,power,8,0);
   if(result==RADIOLIB_ERR_NONE)radio.setRfSwitchPins(39,RADIOLIB_NC);
   return result;
 }
 #elif defined(FORM8_RADIO_SX1276)
 SX1276 radio=new Module(RADIO_CS,RADIO_IRQ,RADIO_RESET,RADIO_BUSY);
-inline void boardPower() {}
+inline void boardPower() {
+#if defined(FORM8_TBEAM)
+  beginTBeamPower();
+#endif
+}
 inline int16_t radioBegin(float freq,float bw,uint8_t sf,uint8_t cr,int8_t power) {
+  if(!validTxPower(power))return RADIOLIB_ERR_INVALID_OUTPUT_POWER;
+#if defined(FORM8_TBEAM)
+  if(!tBeamPmu())return RADIOLIB_ERR_CHIP_NOT_FOUND;
+#endif
   return radio.begin(freq,bw,sf,cr,0x12,power,8,0);
 }
 #else
 SX1262 radio=new Module(RADIO_CS,RADIO_IRQ,RADIO_RESET,RADIO_BUSY);
 inline void boardPower() {
+#if defined(FORM8_TBEAM)
+  beginTBeamPower();
+#endif
 #if defined(FORM8_HELTEC_V4)
   // GPIO7 supplies the FEM rail; GPIO2 enables the front-end chip.
   pinMode(7,OUTPUT);digitalWrite(7,HIGH);pinMode(2,OUTPUT);digitalWrite(2,HIGH);
@@ -33,6 +45,10 @@ inline void boardPower() {
 #endif
 }
 inline int16_t radioBegin(float freq,float bw,uint8_t sf,uint8_t cr,int8_t power) {
+  if(!validTxPower(power))return RADIOLIB_ERR_INVALID_OUTPUT_POWER;
+#if defined(FORM8_TBEAM)
+  if(!tBeamPmu())return RADIOLIB_ERR_CHIP_NOT_FOUND;
+#endif
   int16_t result=radio.begin(freq,bw,sf,cr,0x12,power,8,1.8,false);
   if(result!=RADIOLIB_ERR_NONE)return result;
   result=radio.setDio2AsRfSwitch(true);

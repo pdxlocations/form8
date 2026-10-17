@@ -20,7 +20,8 @@ Before relying on the system in an incident, physical testing still needs to cov
 The companions use the same interface as the radio-hosted webpage.
 
 - **Desktop:** run `npm install`, then `npm run desktop`. Package on the appropriate OS with `npm run desktop:package`. Stop the simulator first: both use port 8848. The Electron wrapper serves the bundled interface locally and forwards radio requests to `192.168.4.1`.
-- **Android / iOS:** run `npm install` and `npm run mobile:prepare`; add your platform with `npx cap add android` or `npx cap add ios`, then run `npm run mobile:sync`. Open it with `npx cap open android` or `npx cap open ios` and build using that platform's tools. iOS needs macOS and signing credentials.
+- **Android:** the native project is checked in. Run `npm ci`, then `npm run build:android` with JDK 21+ and Android SDK 35. See [nRF52 and Android](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) for Bluetooth/USB transport and storage.
+- **iOS:** run `npm install` and `npm run mobile:prepare`, then `npx cap add ios` and `npm run mobile:sync`. Open with `npx cap open ios`; macOS and signing credentials are required. The current iOS wrapper supports ESP32 Wi-Fi only.
 - Follow [the companion guide](https://github.com/pdxlocations/form8/wiki/Companions) for location permissions, local-network access, and HTTP configuration. Native mobile archive export/share still needs platform verification.
 
 ## Hardware and storage details

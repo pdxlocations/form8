@@ -14,6 +14,7 @@ export function validateTargets(manifest, release) {
     && Number.isSafeInteger(image.bytes) && image.bytes > 0 && image.bytes <= 20 * 1024 * 1024;
   const targets = manifest.filter(target => {
     if (!target || !/^[a-z0-9-]+$/.test(target.environment) || seen.has(target.environment) || typeof target.board !== 'string'
+      || (target.chipFamily !== undefined && !['ESP32','ESP32-S3'].includes(target.chipFamily))
       || ![4, 8, 16].includes(target.flashMiB) || target.kind !== 'app-only'
       || !imageOK(target, 65536, `form8-${target.environment}.bin`)
       || target.bytes + 65536 > target.flashMiB * 1024 * 1024) return false;
@@ -32,7 +33,9 @@ export async function verifyImage(buffer, image, cryptoProvider = globalThis.cry
 }
 
 export function installManifest(target, image, version, binaryURL) {
+  const chipFamily=target.chipFamily===undefined?'ESP32-S3':target.chipFamily;
+  if(!['ESP32','ESP32-S3'].includes(chipFamily))throw new Error('Unsupported processor family.');
   return {name: `Form8 · ${target.board}`, version, new_install_prompt_erase: true,
     new_install_improv_wait_time: 0,
-    builds: [{chipFamily: 'ESP32-S3', parts: [{path: binaryURL, offset: Number(image.flashOffset)}]}]};
+    builds: [{chipFamily, parts: [{path: binaryURL, offset: Number(image.flashOffset)}]}]};
 }

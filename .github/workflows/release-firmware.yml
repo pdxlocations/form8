@@ -80,6 +80,37 @@ jobs:
       - name: Build and package every target
         run: python3 tools/build_firmware.py --webflasher
 
+      - name: Build and package all nRF52840 targets
+        run: python3 tools/build_nrf52.py
+
+      - name: Verify nRF checksums
+        working-directory: dist/nrf52
+        run: sha256sum --check SHA256SUMS-NRF52
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Java for Android
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install companion dependencies and test
+        run: |
+          npm ci
+          npm test
+          npm run test:mesh
+
+      - name: Install Android SDK components
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'
+
+      - name: Build and lint the Android development APK
+        run: python3 tools/build_android.py
+
       - name: Verify binary checksums
         working-directory: dist/firmware
         run: sha256sum --check SHA256SUMS
@@ -128,6 +159,13 @@ jobs:
         run: |
           gh release upload "$RELEASE_TAG" \
             dist/form8-esp32-firmware.zip \
+            dist/form8-nrf52-firmware.zip \
+            dist/nrf52/form8-*.uf2 \
+            dist/nrf52/form8-*.hex \
+            dist/nrf52/SHA256SUMS-NRF52 \
+            dist/nrf52/README-NRF52.txt \
+            dist/form8-android-debug.apk \
+            dist/form8-android-debug.apk.sha256 \
             dist/firmware/form8-*.bin \
             dist/firmware/SHA256SUMS \
             dist/firmware/manifest.json \

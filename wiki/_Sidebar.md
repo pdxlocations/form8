@@ -3,6 +3,7 @@
 ## Getting started
 
 - [Install or update with the web flasher](https://github.com/pdxlocations/form8/wiki/Web-Flasher)
+- [nRF52 radios and Android app](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android)
 - [Board selection and builds](https://github.com/pdxlocations/form8/wiki/Board-Guide)
 - [Install firmware for the first time](https://github.com/pdxlocations/form8/wiki/Install-Firmware)
 - [Connect your phone or laptop](https://github.com/pdxlocations/form8/wiki/Connect-to-a-Radio)

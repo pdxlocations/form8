@@ -15,7 +15,9 @@
     "mobile:sync": "npm run mobile:prepare && cap sync",
     "test:display": "python3 tools/test_display.py",
     "build:firmware": "python3 tools/build_firmware.py",
-    "test:boards": "python3 tools/test_boards.py"
+    "test:boards": "python3 tools/test_boards.py",
+    "build:android": "python3 tools/build_android.py",
+    "build:nrf52": "python3 tools/build_nrf52.py"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",

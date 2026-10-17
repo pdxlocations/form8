@@ -74,3 +74,11 @@ It uses a separate protocol and does not communicate with Meshtastic or MeshCore
 ## Can I see locations without internet?
 
 Yes. GPS and LoRa position reports work without internet. Download USGS topo tiles ahead of time to see the U.S. basemap offline; station coordinates and markers remain available without tiles. See [Location sharing and offline maps](Map-and-Location). Phone GPS on the radio’s plain HTTP browser page is restricted by most browsers; use the mobile companion app or onboard GPS.
+
+## Is TX power in dBm, and can I select 22?
+
+Yes. SX1262 targets accept 2–22 dBm, SX1276 accepts 2–20 dBm, and T-Beam BPF is limited to 2–10 dBm. Radio setup shows the connected board's range. For Heltec V4 the field is labeled **TX chip drive**, because its external amplifier changes final output. See [board power settings](Board-Guide#tx-power-settings).
+
+## Can I use an nRF52 board?
+
+Yes. Nine nRF52840 targets use Bluetooth or USB CDC serial with the Android companion. The app holds the interface and message bodies; keep it open for durable receiving and ACKs. There is no Wi-Fi hotspot on these targets. See [nRF52 and Android](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) for compatible boards, bootloader prerequisites, and APK installation.

@@ -4,9 +4,11 @@ The checked-in wrappers reuse `web/`; no cloud service is required after install
 
 ## Android
 
-After `npx cap add android`, configure the generated Android project to allow local cleartext HTTP and location access. The Capacitor config sets `server.cleartext: true`; verify the generated manifest/network policy permits `192.168.4.1` without enabling a remote debug server.
+The native Android project is checked in. Build with `npm ci` then `npm run build:android` using JDK 21+ and Android SDK 35. The result is `dist/form8-android-debug.apk`, an installable development app signed with the project's public development key. Release builds attach it automatically. This is not a production/Play Store signing key.
 
-Add `android.permission.ACCESS_COARSE_LOCATION` and `android.permission.ACCESS_FINE_LOCATION` to the manifest for automatic positioning and optional form location attachment. The app must work when location permission is denied. Native geolocation requests permission when invoked. Local-network permissions may also be required by the target Android SDK/device version; test the selected SDK before release.
+For nRF52840, select **Settings → Radio connection → Bluetooth or USB serial**. The app stores bodies and receipt metadata locally, and only confirms reception after a successful storage transaction. Keep the app in the foreground; there is no background service. Follow the [nRF52 / Android guide](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) for installation, board targets, storage limits, and reconnect behavior.
+
+For ESP32, select **Wi-Fi (ESP32)** and connect the phone to the radio hotspot at `192.168.4.1`. Native HTTP and cleartext local access are configured in the manifest. Native location requests permission when needed; denied GPS access leaves messaging available. Archive/map export uses Android's document save picker. Physical installation, Bluetooth/USB, GPS, export/import, and reconnect testing remain necessary.
 
 ## iOS
 
@@ -18,4 +20,4 @@ The wrapper binds only to `127.0.0.1`, denies unexpected Host headers, keeps Nod
 
 ## Release checks still needed
 
-Confirm fresh installation, denied permissions, offline app restart, reconnect after switching Wi-Fi, a draft retained across process termination, verified archive retained across restart, export/import/share, client token retry after a dropped HTTP response, and simultaneous clients on one radio. No signed installers or mobile binaries have been produced by this project yet.
+Confirm fresh installation, denied permissions, offline app restart, reconnect after switching Wi-Fi, a draft retained across process termination, verified archive retained across restart, export/import/share, client token retry after a dropped HTTP response, and simultaneous clients on one radio. An Android development APK is built; physical device validation and production signing are still outstanding. iOS and desktop installers are not built by the release workflow.

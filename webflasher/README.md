@@ -40,7 +40,7 @@ Upload `maps.html`, `maps.js`, `maps.css`, and the entire **`map-assets/`** subf
 6. Click **Connect USB & install**, select the USB port, and use the installer dialog. **For updates, leave “Erase device” unchecked.** First-install images replace storage regardless of that checkbox. Do not disconnect USB during flashing.
 7. After the board restarts, read the hotspot name/password from its OLED. For headless boards, use the installer's **Logs & Console** at 115200 baud and send `wifi`. Join the hotspot and open `http://192.168.4.1`.
 
-The USB tool verifies the ESP32-S3 chip family; it **cannot identify the board model, radio chip, or Heltec front-end revision**. Visitors must choose these correctly. Physical flashing, board operation, and data preservation still need verification on hardware.
+The USB tool verifies the selected ESP32 or ESP32-S3 chip family; it **cannot identify the board model, radio chip, or Heltec front-end revision**. Visitors must choose these correctly. Physical flashing, board operation, and data preservation still need verification on hardware.
 
 ## What comes from GitHub?
 

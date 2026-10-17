@@ -48,3 +48,14 @@ test('install manifests use verified blobs, exact offsets and an erase choice', 
     assert.deepEqual(manifest.builds,[{chipFamily:'ESP32-S3',parts:[{path:'blob:verified',offset:Number(selected.flashOffset)}]}]);
   }
 });
+
+test('original ESP32 builds select ESP32 in the installer while old releases retain S3 compatibility',()=>{
+  const esp32={...target,chipFamily:'ESP32'};
+  assert.equal(validateTargets([esp32],release)[0].chipFamily,'ESP32');
+  assert.equal(installManifest(esp32,image,'v1','blob:verified').builds[0].chipFamily,'ESP32');
+  assert.equal(installManifest(target,image,'v1','blob:verified').builds[0].chipFamily,'ESP32-S3');
+  for(const chipFamily of ['ESP8266','ESP32-C3',null]){
+    assert.throws(()=>validateTargets([{...target,chipFamily}],release),/No complete/);
+    assert.throws(()=>installManifest({...target,chipFamily},image,'v1','blob:verified'),/Unsupported/);
+  }
+});

@@ -4,14 +4,21 @@
 #include <TinyGPSPlus.h>
 #include <XPowersLib.h>
 #include <Wire.h>
-TinyGPSPlus gpsParser;
-HardwareSerial gpsSerial(1);
+#include <TBeamPower.h>
+#if !defined(FORM8_TBEAM)
 XPowersAXP2101 gpsPower;
 bool gpsPowerReady=false;
+#endif
+TinyGPSPlus gpsParser;
+HardwareSerial gpsSerial(1);
 inline void beginGps(){
+  #if defined(FORM8_TBEAM)
+  beginTBeamPower();
+  #else
   Wire.begin(GPS_SDA,GPS_SCL);
   gpsPowerReady=gpsPower.begin(Wire,AXP2101_SLAVE_ADDRESS,GPS_SDA,GPS_SCL);
   if(gpsPowerReady){gpsPower.setALDO4Voltage(3300);gpsPower.enableALDO4();}
+  #endif
   gpsSerial.begin(9600,SERIAL_8N1,GPS_RX,GPS_TX);
 }
 inline void readGps(form8::PositionFix& fix,uint32_t now){

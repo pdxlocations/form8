@@ -290,7 +290,7 @@ void api() {
     d["storageUsed"]=fsReady?LittleFS.usedBytes():0;d["storageTotal"]=fsReady?LittleFS.totalBytes():0;
     d["storageWarning"]=!fsReady || LittleFS.totalBytes()-LittleFS.usedBytes()<STORAGE_RESERVE+512*1024 || allIds(false).size()>460;
     d["frequency"]=useBackup?backup:primary;d["primary"]=primary;d["backup"]=backup;d["useBackup"]=useBackup;
-    d["band"]=VHF?"vhf":"uhf";d["bandwidth"]=bandwidth;d["sf"]=spreading;d["cr"]=coding;d["power"]=power;
+    d["band"]=VHF?"vhf":"uhf";d["bandwidth"]=bandwidth;d["sf"]=spreading;d["cr"]=coding;d["power"]=power;d["powerMin"]=TX_POWER_MIN_DBM;d["powerMax"]=TX_POWER_MAX_DBM;d["powerIsDrive"]=TX_POWER_IS_DRIVE;
     d["gpsAvailable"]=GPS_AVAILABLE;d["gpsFresh"]=gpsFix.fresh(millis());d["positionEnabled"]=positionEnabled;d["positionInterval"]=positionInterval;
     positionJson(d["location"].to<JsonObject>(),preferredPosition(gpsFix,phoneFix,millis()));
     JsonArray a=d["peers"].to<JsonArray>();
@@ -302,6 +302,10 @@ void api() {
     String call=d["callsign"]|callsign;call.toUpperCase();
     float freq=d["primary"]|primary,bak=d["backup"]|backup,bw=d["bandwidth"]|bandwidth;
     int sf=d["sf"]|spreading,cr=d["cr"]|coding,pwr=d["power"]|power;
+    if((!d["power"].isNull() && !d["power"].is<int>()) || !validTxPower(pwr)){
+      String message="TX power must be a whole number from "+String(TX_POWER_MIN_DBM)+" to "+String(TX_POWER_MAX_DBM)+" dBm";
+      error(400,message.c_str());return;
+    }
     bool alt=d["useBackup"]|useBackup;
     int interval=d["positionInterval"]|int(positionInterval);
     if(interval<60 || interval>86400 || (!d["positionInterval"].isNull() && !d["positionInterval"].is<int>()) || (!d["positionEnabled"].isNull() && !d["positionEnabled"].is<bool>())){error(400,"Position interval must be 60–86400 whole seconds");return;}
@@ -309,7 +313,7 @@ void api() {
     const float choices[]={7.8,10.4,15.6,20.8,31.25,41.7,62.5,125,250,500};bool goodBW=false;
     for(float choice:choices)if(fabs(bw-choice)<0.01)goodBW=true;
     // SX1262 supports >=7.8 kHz; allow SF7–12 common to both board families.
-    if(!validCall(call)||!goodFreq(freq)||(bak!=0&&!goodFreq(bak))||(alt&&bak==0)||!goodBW||sf<7||sf>12||cr<5||cr>8||pwr<2||pwr>(VHF?10:20)){
+    if(!validCall(call)||!goodFreq(freq)||(bak!=0&&!goodFreq(bak))||(alt&&bak==0)||!goodBW||sf<7||sf>12||cr<5||cr>8){
       error(400,"Invalid callsign or radio profile");return;
     }
     callsign=call;primary=freq;backup=bak;bandwidth=bw;spreading=sf;coding=cr;power=pwr;useBackup=alt;
@@ -424,6 +428,7 @@ void setup() {
   callsign=prefs.getString("call","");active=parse64(prefs.getString("incident",""));activeName=prefs.getString("name","");
   primary=prefs.getFloat("primary",primary);backup=prefs.getFloat("backup",backup);bandwidth=prefs.getFloat("bw",bandwidth);
   spreading=prefs.getUChar("sf",spreading);coding=prefs.getUChar("cr",coding);power=prefs.getChar("power",power);
+  if(!validTxPower(power))power=power<TX_POWER_MIN_DBM?TX_POWER_MIN_DBM:TX_POWER_MAX_DBM;
   useBackup=prefs.getBool("alternate",false);txEnabled=prefs.getBool("tx",false);paused=prefs.getBool("paused",false);
   positionEnabled=prefs.getBool("posEnabled",true);positionInterval=prefs.getUInt("posInterval",600);
   if(positionInterval<60 || positionInterval>86400)positionInterval=600;

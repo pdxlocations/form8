@@ -148,7 +148,7 @@ form.onsubmit=run(async event=>{
   d.boundIncident=status.incident;await db('drafts','put',{id:d.clientToken,form:d,savedAt:Date.now()});
   boundIncident=d.boundIncident;
   const result=await api('forms',d);await db('drafts','delete',d.clientToken);fill();await saveDraft();
-  feedback(`Form ${result.id.slice(-8)} saved to radio${status.paused?' · transmission paused':!status.txEnabled?' · transmission disabled': ' · awaiting radio ACK'}.`);showTab('traffic');await openForm(result.id);await poll();
+  feedback(`Form ${result.id.slice(-8)} saved to ${status.companionStorage?'companion':'radio'}${status.paused?' · transmission paused':!status.txEnabled?' · transmission disabled': ' · awaiting radio ACK'}.`);showTab('traffic');await openForm(result.id);await poll();
 });
 $('#phone-location').onclick=run(async()=>{
   const button=$('#phone-location'),label=button.textContent;
@@ -158,7 +158,7 @@ $('#phone-location').onclick=run(async()=>{
     if(!fix?.fresh){
       const position=await deviceLocation();const payload=locationPayload(position);
       fix={...payload,source:'phone',fresh:true};
-      if(status)await api('position',payload);
+      if(status && status.companionConnected!==false)await api('position',payload);
     }
     const captured=Date.now();locationData={source:fix.source,capturedAt:new Date(captured).toISOString(),fixAgeMs:fix.ageMs||0,accuracy:fix.accuracy};
     form.elements.lat.value=fix.lat;form.elements.lon.value=fix.lon;counts();
@@ -294,7 +294,7 @@ $('#chat-form').onsubmit=run(async event=>{
   const {signature,...submission}=chatSubmission;chatSending=true;chatControls();
   try {
     await api('chat',submission);$('#chat-text').value='';chatReply=null;chatSubmission=null;chatIncident='';
-    feedback('Chat saved to radio. Delivery receipts will appear in Chat.');await loadChatMessages();
+    feedback(`Chat saved to ${status?.companionStorage?'companion':'radio'}. Delivery receipts will appear in Chat.`);await loadChatMessages();
   }finally {chatSending=false;chatControls();}
 });
 function poll() {
@@ -304,6 +304,7 @@ function poll() {
 }
 function radioClockKey(next){return `${next.node||''}:${next.bootSession??''}`;}
 async function syncRadioTime(next,reconnected){
+  if(next.companionConnected===false){timeSynced=false;timeSyncTarget='';return;}
   const key=radioClockKey(next);
   if(reconnected || key!==timeSyncTarget){timeSyncTarget=key;timeSynced=false;timeSyncRetryAt=0;}
   if(next.clockSource==='unsynchronized' && timeSynced){timeSynced=false;timeSyncRetryAt=0;}
@@ -324,25 +325,29 @@ async function refreshScreen() {
     const reconnected=!status;
     if(status && (status.node!==next.node || status.incident!==next.incident)){offset=0;selectedForm=null;displayedRecord='';setTrafficView();resetChat();}
     status=next;updateNavigationBadges();
-    positionClient.update(next);mapPanel.update(next);
+    positionClient.update(next.companionConnected===false?null:next);mapPanel.update(next);
     chatControls();
-    $('#connection').textContent=next.simulated?'Simulation · no RF':next.paused?'Connected · TX paused':!next.txEnabled?'Connected · TX disabled':'Connected to radio';
+    $('#connection').textContent=next.companionConnected===false?'Radio disconnected · companion data available':next.simulated?'Simulation · no RF':next.paused?'Connected · TX paused':!next.txEnabled?'Connected · TX disabled':'Connected to radio';
     await syncRadioTime(next,reconnected);
     $('#active-name').textContent=next.incidentName||'Choose an incident';
     $('#incident-id').textContent=next.incident==='0000000000000000'?'No incident selected':`Incident ID ${next.incident}`;
-    $('#radio-diagnostics').textContent=`RX packets ${next.rxPackets||0} · Valid frames ${next.rxFrames||0} · TX frames ${next.txFrames||0} · RX errors ${next.rxErrors||0} · Last RX error ${next.lastRxError||0} · Dropped from queue ${next.dropped||0}`;
+    $('#radio-diagnostics').textContent=`RX packets ${next.rxPackets||0} · Valid frames ${next.rxFrames||0} · TX frames ${next.txFrames||0} · RX errors ${next.rxErrors||0} · Last RX error ${next.lastRxError||0} · Dropped from queue ${next.dropped||0}${next.receiveError?` · ${next.receiveError}`:''}`;
     $('#station').textContent=`${next.callsign||'Callsign not set'} · ${next.frequency.toFixed(3)} MHz · ${next.peers.filter(p=>p.online&&p.incident===next.incident&&next.incident!=='0000000000000000').length} nearby incident nodes · ${next.peers.filter(p=>p.online).length} nodes heard`;
     $('#message-status').textContent=`${next.unreadMessages||0} unread · ${next.outgoingMessages||0} awaiting radio ACK`;
-    $('#storage').textContent=`${(next.storageUsed/1048576).toFixed(1)} / ${(next.storageTotal/1048576).toFixed(1)} MB`;
+    $('#storage').textContent=`${(next.storageUsed/1048576).toFixed(1)} / ${(next.storageTotal/1048576).toFixed(1)} MB${next.companionStorage?' · companion storage':''}`;
     $('#queue').textContent=`${next.queue} queue items`;
     $('#warning').hidden=!next.storageWarning && next.fsReady && next.radioReady;
-    $('#warning').textContent=!next.fsReady?'Radio storage unavailable. Upload the filesystem image for first setup; do not overwrite an existing incident filesystem.':!next.radioReady?`Radio initialization failed (${next.radioError}).`: 'Storage is running low. Archive older delivered forms or explicitly discard selected bodies.';
-    $('#board-info').textContent=`${next.board} · ${next.band.toUpperCase()} profile · ${next.clockSource}${next.powerNote?` · ${next.powerNote}`:''}`;
+    $('#warning').textContent=!next.fsReady?'Radio storage unavailable. Upload the filesystem image for first setup; do not overwrite an existing incident filesystem.':next.companionConnected===false?'Radio disconnected. Data stays on this companion; reconnect to send or receive.':!next.radioReady?`Radio initialization failed (${next.radioError}).`: 'Storage is running low. Archive older delivered forms or explicitly discard selected bodies.';
+    $('#board-info').textContent=`${next.board} · ${next.band.toUpperCase()} profile · ${next.clockSource}${Number.isFinite(next.batteryPercent)?` · Battery ~${next.batteryPercent}%`:next.batteryMillivolts>0?` · Battery ${(next.batteryMillivolts/1000).toFixed(2)} V`: ""}${next.powerNote?` · ${next.powerNote}`:''}`;
+    const powerMin=next.powerMin??2,powerMax=next.powerMax??(next.band==='vhf'?10:20);
+    const powerField=$('#radio-settings').elements.power;powerField.min=powerMin;powerField.max=powerMax;
+    $('#tx-power-label').textContent=next.powerIsDrive?'TX chip drive · dBm':'TX power · dBm';
+    $('#tx-power-help').textContent=`Range: ${powerMin}–${powerMax} dBm${next.powerIsDrive?'. Heltec V4 adds external amplification; this value is the SX1262 chip setting, not final antenna output.':'.'}`;
     if(!settingsLoaded || !settingsDirty){
       const f=$('#radio-settings');for(const key of ['callsign','primary','backup','bandwidth','sf','cr','power'])f.elements[key].value=String(next[key]);
       for(const key of ['useBackup','txEnabled','paused'])f.elements[key].checked=next[key];
       f.elements.positionEnabled.checked=next.positionEnabled??true;f.elements.positionMinutes.value=String((next.positionInterval||600)/60);
-      f.elements.power.max=next.band==='vhf'?10:20;settingsLoaded=true;
+      settingsLoaded=true;
     }
     renderNearbyIncidents();
     const updates=[];
@@ -503,9 +508,11 @@ async function loadArchives() {
   }
   if(!list.children.length)list.append(text('p','No archived forms on this device.','muted'));
 }
-function download(records) {
+async function download(records) {
   const blob=new Blob([JSON.stringify({format:'form8-archive-v1',records},null,2)],{type:'application/json'});
-  const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=`form8-archive-${new Date().toISOString().slice(0,10)}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
+  const filename=`form8-archive-${new Date().toISOString().slice(0,10)}.json`;
+  if(globalThis.Form8Native?.saveFile){await Form8Native.saveFile(blob,filename);return;}
+  const link=document.createElement('a');link.href=URL.createObjectURL(blob);link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);
 }
 $('#export-all').onclick=run(async()=>download(await db('archives','getAll')));
 $('#import-archive').onchange=run(async event=>{

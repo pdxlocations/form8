@@ -1,6 +1,6 @@
 # Form8 documentation
 
-Form8 exchanges incident forms and short chat messages between LoRa radios using a phone or laptop connected to a radio’s Wi-Fi hotspot. Messaging works without internet or cell service after setup.
+Form8 exchanges incident forms and short chat messages between LoRa radios using a phone or laptop. ESP32 radios host a Wi-Fi webpage; nRF52840 radios use the Android app over Bluetooth or USB serial. Messaging works without internet or cell service after setup.
 
 [Install firmware](https://form8.pdxlocs.com) · [Project and screenshots](https://github.com/pdxlocations/form8)
 
@@ -9,6 +9,7 @@ Form8 exchanges incident forms and short chat messages between LoRa radios using
 ## Getting started
 
 - [Install or update with the web flasher](https://github.com/pdxlocations/form8/wiki/Web-Flasher)
+- [nRF52 radios and Android app](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android)
 - [Board selection and builds](https://github.com/pdxlocations/form8/wiki/Board-Guide)
 - [Install firmware for the first time](https://github.com/pdxlocations/form8/wiki/Install-Firmware)
 - [Connect your phone or laptop](https://github.com/pdxlocations/form8/wiki/Connect-to-a-Radio)
