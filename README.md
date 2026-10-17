@@ -18,11 +18,11 @@ Example screens from the local simulator; these do not demonstrate an RF connect
 
 ### Read and acknowledge a message
 
-![Form8 message reader with radio receipts and manual acknowledgments](docs/screenshots/traffic.png)
+![Form8 message reader with callsigns for Radio ACK, Human Ack, and Origin](docs/screenshots/traffic.png)
 
 ### Incident chat
 
-![Form8 incident chat with replies, emoji reactions, and radio receipts](docs/screenshots/chat.png)
+![Form8 incident chat with composer at the top, newest messages first, replies, emoji reactions, and radio receipts](docs/screenshots/chat.png)
 
 ### Incident map
 

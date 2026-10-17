@@ -32,7 +32,10 @@ public:
     size_t at=0;
     while(at<query.length()){
       int end=query.indexOf('&',at);if(end<0)end=query.length();String item=query.substring(at,end);int equal=item.indexOf('=');
-      if(equal>=0&&decode(item.substring(0,equal))==name)return decode(item.substring(equal+1));at=end+1;
+      if(equal>=0&&decode(item.substring(0,equal))==name){
+        return decode(item.substring(equal+1));
+      }
+      at=end+1;
     }return "";
   }
   struct AppendWriter {

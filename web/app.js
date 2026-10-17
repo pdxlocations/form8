@@ -277,7 +277,7 @@ function renderChatMessages(){
     const heading=text('div','','chat-heading'),date=new Date(message.sentAt*1000);
     heading.append(text('strong',message.sender),text('span',message.sentAt>=1577836800?date.toLocaleString():'Time not synchronized','muted'));item.append(heading);
     if(message.parent){
-      const parent=result.messages.find(candidate=>candidate.id===message.parent);
+      const parent=chatMessages.find(candidate=>candidate.id===message.parent);
       item.append(text('blockquote',parent?`${parent.sender}: ${parent.text}`:`Reply to earlier message · ${message.parent.slice(-8)}`,'chat-quote'));
     }
     item.append(text('p',message.text,'chat-body'));
