@@ -1,56 +1,82 @@
 [
   {
     "environment": "rak4631",
-    "board": "RAK4631 / WisBlock",
+    "board": "RAK4631 / WisBlock \u2014 S140 7.3.0",
     "radio": "SX1262",
-    "gps": "optional WisBlock GPS"
+    "gps": "optional WisBlock GPS",
+    "softdevice": "7.3.0",
+    "applicationStart": "0x27000"
+  },
+  {
+    "environment": "rak4631-s140-6-1-1",
+    "board": "RAK4631 / WisBlock \u2014 stock S140 6.1.1",
+    "radio": "SX1262",
+    "gps": "optional WisBlock GPS",
+    "softdevice": "6.1.1",
+    "applicationStart": "0x26000"
   },
   {
     "environment": "wismesh-tag",
     "board": "RAK WisMesh Tag",
     "radio": "SX1262",
-    "gps": "onboard"
+    "gps": "onboard",
+    "softdevice": "7.3.0",
+    "applicationStart": "0x27000"
   },
   {
     "environment": "t-echo",
     "board": "LILYGO T-Echo",
     "radio": "SX1262",
-    "gps": "onboard"
+    "gps": "onboard",
+    "softdevice": "7.3.0",
+    "applicationStart": "0x27000"
   },
   {
     "environment": "heltec-t114",
     "board": "Heltec Mesh Node T114",
     "radio": "SX1262",
-    "gps": "optional GPS expansion"
+    "gps": "optional GPS expansion",
+    "softdevice": "7.3.0",
+    "applicationStart": "0x27000"
   },
   {
     "environment": "heltec-t096",
     "board": "Heltec Mesh Node T096",
     "radio": "SX1262 + KCT8103L FEM",
-    "gps": "onboard"
+    "gps": "onboard",
+    "softdevice": "7.3.0",
+    "applicationStart": "0x27000"
   },
   {
     "environment": "seeed-wio-tracker-l1",
     "board": "Seeed Wio Tracker L1",
     "radio": "SX1262",
-    "gps": "onboard"
+    "gps": "onboard",
+    "softdevice": "7.3.0",
+    "applicationStart": "0x27000"
   },
   {
     "environment": "seeed-xiao-nrf52-kit",
     "board": "Seeed XIAO nRF52840 + standalone Wio-SX1262",
     "radio": "SX1262",
-    "gps": "phone"
+    "gps": "phone",
+    "softdevice": "7.3.0",
+    "applicationStart": "0x27000"
   },
   {
     "environment": "seeed-t1000-e",
     "board": "Seeed SenseCAP T1000-E",
     "radio": "LR1110",
-    "gps": "onboard"
+    "gps": "onboard",
+    "softdevice": "7.3.0",
+    "applicationStart": "0x27000"
   },
   {
     "environment": "seeed-solar-node",
     "board": "Seeed Solar Node",
     "radio": "SX1262",
-    "gps": "onboard"
+    "gps": "onboard",
+    "softdevice": "7.3.0",
+    "applicationStart": "0x27000"
   }
 ]

@@ -68,7 +68,7 @@ test('nRF-only releases appear when UF2 and checksums are published', () => {
 
 test('nRF downloads require a matching published asset, size and unique checksum', async () => {
   const {validateNrfTargets}=await import('../webflasher/model.js');
-  const catalog=[{environment:'rak4631',board:'RAK4631'}];
+  const catalog=[{environment:'rak4631',board:'RAK4631',softdevice:'7.3.0',applicationStart:'0x27000'}];
   const file='form8-rak4631.uf2';
   const r={assets:[{name:file,bytes:buffer.byteLength}]};
   const sums=`${image.sha256}  ${file}\n`;

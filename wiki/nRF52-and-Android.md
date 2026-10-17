@@ -2,13 +2,14 @@
 
 Form8 can use nRF52840 LoRa boards over **Bluetooth or USB serial**. These radios have no Wi-Fi webpage. The Android app bundles the interface and stores forms, receipts, chat, drafts, archives, and offline maps on the phone. Internet is only needed to download/install software and map tiles.
 
-The targets compile and the Android app builds and passes lint. **Physical board, Bluetooth, USB, GPS, battery, and over-the-air testing are still required.** The initial nRF support is experimental. Board displays, buttons, sleep/power optimization, and background Android reception are not implemented.
+The targets compile and the Android app builds and passes lint. **RAK4631 startup, Bluetooth discovery, and companion connection have been confirmed with a stock 0.4.2 bootloader and S140 6.1.1.** Radio delivery, USB operation, GPS, battery behavior, and other board variants still need physical verification. The initial nRF support is experimental. Board displays, buttons, sleep/power optimization, and background Android reception are not implemented.
 
 ## Choose the exact target
 
 | Board | Target | Radio | GPS |
 |---|---|---|---|
-| RAK4631 / WisBlock | `rak4631` | SX1262 | Optional WisBlock GPS |
+| RAK4631 / WisBlock, S140 7.3.0 | `rak4631` | SX1262 | Optional WisBlock GPS |
+| RAK4631 / WisBlock, stock S140 6.1.1 | `rak4631-s140-6-1-1` | SX1262 | Optional WisBlock GPS |
 | RAK WisMesh Tag | `wismesh-tag` | SX1262 | Onboard |
 | LILYGO T-Echo | `t-echo` | SX1262 | Onboard |
 | Heltec Mesh Node T114 | `heltec-t114` | SX1262 | Optional expansion |
@@ -20,13 +21,26 @@ The targets compile and the Android app builds and passes lint. **Physical board
 
 Use 868/915 MHz hardware appropriate to your chosen frequency. These targets use UHF; they are not 433 MHz images. The XIAO target uses the standalone Wio-SX1262 module/kit (SKU 113010003 / 102010710), whose pins differ from the B2B module. Do not substitute the ESP32 XIAO target.
 
+## Which RAK4631 firmware should I install?
+
+Double-press **Reset**, open the **RAK4631** USB drive, and read the **SoftDevice** line in `INFO_UF2.TXT`. Match that line—not the bootloader version number:
+
+| `INFO_UF2.TXT` says | Choose in the flasher | Firmware file |
+|---|---|---|
+| **S140 6.1.1** | **RAK4631 / WisBlock — stock S140 6.1.1** | `form8-rak4631-s140-6-1-1.uf2` |
+| **S140 7.3.0** | **RAK4631 / WisBlock — S140 7.3.0** | `form8-rak4631.uf2` |
+
+A stock RAK bootloader such as **0.4.2** can report **S140 6.1.1**; use the 6.1.1 build in that case. You do not need to change the bootloader or SoftDevice to use that build. Other current nRF build profiles require S140 7.3.0. If the installed version is different or unknown, identify it before choosing an image.
+
+The files contain the application only. If the matching option is missing from the flasher, choose a release that includes that file; older releases may only contain the 7.3.0 RAK build. Enable **Show prereleases** if needed. After copying the UF2, the USB drive disappearing is normal: the board restarts into Form8. Scan for **Form8-…** in the Android app.
+
 ## Install the radio firmware
 
 1. Download `form8-nrf52-firmware.zip` from the [release assets](https://github.com/pdxlocations/form8/releases).
 2. Extract the ZIP and choose the **matching board** `.uf2` file.
 3. Put the board in its vendor's UF2 bootloader mode, usually by double-pressing Reset. Read `INFO_UF2.TXT` on the USB drive.
-4. Confirm the board has a compatible UF2 bootloader with **Nordic S140 7.3.0**. These images start at `0x27000`; they **do not contain a SoftDevice or bootloader**. If you have S140 6.1.1 or cannot identify the installed version, use the board vendor's instructions to install the correct bootloader/SoftDevice before proceeding. Do not copy a bootloader intended for a different board.
-5. Copy the matching Form8 `.uf2` onto the bootloader drive. The board should restart and advertise `Form8-xxxxxx` over Bluetooth.
+4. Match the image to the **SoftDevice** line in `INFO_UF2.TXT`. For a RAK4631 with **S140 6.1.1**, use `form8-rak4631-s140-6-1-1.uf2` (application at `0x26000`). For a RAK4631 with **S140 7.3.0**, use `form8-rak4631.uf2` (application at `0x27000`). All other current targets require **S140 7.3.0**. These images **do not contain or replace a SoftDevice or bootloader**. If the version is unknown, identify it before flashing. Do not use a bootloader intended for a different board.
+5. In the web flasher, select the version you checked in **Installed SoftDevice**. Downloads stay blocked until it matches the build; the site cannot detect it automatically. If the board has no USB bootloader drive, confirm the installed version with its programming tools. Copy the matching Form8 `.uf2` onto the bootloader drive. The board should restart and advertise `Form8-xxxxxx` over Bluetooth.
 6. No filesystem image is needed. Do not use the ESP32 web flasher for an nRF board. The `.hex` is an application-only image for developers with appropriate programming tools; a mass erase removes prerequisites and is not a normal update.
 
 The T1000-E magnetic cable normally does **not** expose a USB CDC data connection. Use Bluetooth for the companion. Entering/updating its bootloader may require the vendor's documented Bluetooth DFU or programming accessory procedure; the Form8 Android app is not a firmware flasher.
@@ -79,7 +93,7 @@ Use **Map → Download area** while the phone has internet. Bluetooth/USB can st
 
 ## Build with pioarduino / PlatformIO
 
-All **21 environments** (12 ESP32 and nine nRF52840) appear in the main project. Open the repository folder containing `platformio.ini`. In the PlatformIO/pioarduino **Project Tasks** panel, refresh the task list, then expand a target such as **rak4631 → General → Build**. You can also select the target from the environment selector in the bottom status bar. If the list still shows only ESP32, use **Developer: Reload Window** in VS Code's Command Palette.
+All **21 environments** (11 ESP32 and ten nRF52840 build profiles) appear in the main project. Open the repository folder containing `platformio.ini`. In the PlatformIO/pioarduino **Project Tasks** panel, refresh the task list, then expand a target such as **rak4631 → General → Build**. You can also select the target from the environment selector in the bottom status bar. If the list still shows only ESP32, use **Developer: Reload Window** in VS Code's Command Palette.
 
 For example, `pio run -e rak4631` and `pio run -e seeed-t1000-e` work from the project root. `config/nrf52.ini` supplies the nRF environments to the main project. The optional `platformio-nrf52.ini` wrapper remains available for nRF-only command-line builds; it is no longer necessary to select a different configuration to see the nRF targets in the IDE.
 

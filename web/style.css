@@ -76,3 +76,5 @@ nav button{position:relative}
 [data-theme="dark"] nav button.selected .nav-badge{border-color:#293e30}
 
 .traffic-addresses,.delivery strong{overflow-wrap:anywhere}
+
+.message-storage{border-top:1px solid var(--border);padding-top:12px;margin-top:16px}.message-storage h4{margin:0 0 6px}.incident-item .actions{margin:0;justify-content:flex-end}.archive-item{flex-wrap:wrap}.archive-item .message{flex-basis:100%}@media(max-width:640px){.incident-item{align-items:flex-start;gap:8px}.incident-item .actions{gap:6px}.incident-item button{white-space:normal}}

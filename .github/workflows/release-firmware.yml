@@ -62,7 +62,9 @@ jobs:
         run: python3 -m pip install platformio==6.1.19
 
       - name: Check every visible environment against both firmware catalogs
-        run: python3 tools/check_firmware_targets.py
+        run: |
+          python3 tools/check_firmware_targets.py
+          python3 tools/test_nrf_images.py
 
       - name: Build and package every target
         run: python3 tools/build_firmware.py --webflasher

@@ -87,5 +87,5 @@ Scheduling constants are in `lib/Form8Mesh/src/TrafficSchedule.h` and `DeliveryR
 - The cache is bounded; traffic exceeding it can cause redundant forwarding. TTL still limits each forwarding chain.
 - Reboot resets the duplicate cache. Publisher sequences are randomly seeded at boot to reduce collisions with recently seen control packets.
 - Forms from previous incidents remain in storage but are neither advertised nor transmitted until that incident becomes active again.
-- Archive/discard metadata is retained indefinitely up to the global record cap. Purging or compacting it without causing unwanted repair is future work.
+- Single-message archive/removal keeps compact delivery metadata up to the global record cap. Explicit whole-incident removal deletes that incident’s bodies, metadata, and chat, and leaves it first if active. This frees record slots; rejoining that incident can receive its traffic again.
 - There is no cryptographic authentication, encryption, replay protection or protection against a malicious node impersonating another callsign.

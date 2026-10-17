@@ -1,4 +1,4 @@
-import {availableReleases, validateTargets, validateNrfTargets, verifyImage, installManifest} from './model.js';
+import {availableReleases, validateTargets, validateNrfTargets, verifyImage, verifyNrfImage, nrfCompatibility, installManifest} from './model.js';
 
 const $ = id => document.getElementById(id);
 let allReleases = [], releases = [], targets = [], loading = false, preparing = false, revision = 0;
@@ -34,14 +34,18 @@ function updateControls() {
   $('esp-mode').hidden = nrf();
   $('nrf-help').hidden = !nrf();
   $('nrf-format').disabled = loading || preparing;
+  $('nrf-softdevice').disabled = loading || preparing;
+  const compatibility = nrf() ? nrfCompatibility(target, $('nrf-softdevice').value) : {ok:true};
+  $('nrf-compatibility').textContent = compatibility.message || '';
+  $('nrf-compatibility').classList.toggle('error', nrf() && !compatibility.ok && !!$('nrf-softdevice').value);
   $('prepare').textContent = nrf() ? 'Download & verify firmware file ↓' : 'Download & verify firmware ↓';
   $('nrf-cable-note').hidden = target?.environment !== 'seeed-t1000-e';
   $('erase-confirmation').hidden = !factory();
   $('factory-note').hidden = !factory() || !target || !!target.factory;
   $('prepare').disabled = !(nrf() ? window.isSecureContext && !!globalThis.crypto?.subtle : supported) || loading || preparing || !selectedImage()
-    || !$('confirm-board').checked || (factory() && !$('confirm-erase').checked);
+    || !compatibility.ok || !$('confirm-board').checked || (factory() && !$('confirm-erase').checked);
   $('prepare').hidden = !$('install-area').hidden || !$('download-area').hidden;
-  if (nrf()) $('board-info').textContent = `nRF52840 · ${target.radio} · Experimental. Application only; requires the board’s bootloader and S140 7.3.0. No filesystem upload.`;
+  if (nrf()) $('board-info').textContent = `nRF52840 · ${target.radio} · Experimental. Application only; requires the board’s bootloader and S140 ${target.softdevice}. No filesystem upload.`;
   else if (target) $('board-info').textContent = `${target.chipFamily||"ESP32-S3"} · ${target.radio} · ${target.flashMiB} MB flash${target.experimental ? ' · EXPERIMENTAL target' : ''}. Check your physical board: USB cannot distinguish these board variants.`;
 }
 async function getJSON(url) {
@@ -57,6 +61,7 @@ async function loadBoards() {
   clearPrepared();
   targets = [];
   $('confirm-board').checked = $('confirm-erase').checked = false;
+  $('nrf-softdevice').value = '';
   const release = selectedRelease();
   if (!release) { loading = false; updateControls(); return; }
   loading = true;
@@ -111,22 +116,24 @@ async function refresh() {
 $('refresh').addEventListener('click', refresh);
 $('release').addEventListener('change', loadBoards);
 $('prereleases').addEventListener('change', () => filterReleases($('release').value));
-for (const input of document.querySelectorAll('#board, #nrf-format, input[name=mode], #confirm-board, #confirm-erase')) input.addEventListener('change', () => {
-  if (input.id === 'board') $('confirm-board').checked = $('confirm-erase').checked = false;
+for (const input of document.querySelectorAll('#board, #nrf-format, #nrf-softdevice, input[name=mode], #confirm-board, #confirm-erase')) input.addEventListener('change', () => {
+  if (input.id === 'board') { $('confirm-board').checked = $('confirm-erase').checked = false; $('nrf-softdevice').value = ''; }
+  if (input.id === 'nrf-softdevice') $('confirm-board').checked = false;
   if (input.name === 'mode') $('confirm-erase').checked = false;
   clearPrepared(); updateControls();
   status(nrf() ? 'Download the matching UF2 or HEX, then follow the nRF installation instructions.' : factory() ? 'First installation replaces saved data. Confirm your selection before continuing.' : 'Update selected. Leave “Erase device” unchecked in the installer.');
 });
 $('prepare').addEventListener('click', async () => {
   const release = selectedRelease(), target = selectedTarget(), image = selectedImage();
-  if ($('prepare').disabled || !image) return;
+  if ($('prepare').disabled || !image || (nrf() && !nrfCompatibility(target, $('nrf-softdevice').value).ok)) return;
   clearPrepared(); preparing = true; updateControls();
   status('Downloading firmware and checking SHA-256…');
   try {
     const response = await fetch(api('binary', {release: release.id, file: image.file}), {cache: 'no-store'});
     if (!response.ok) { const error = await response.json(); throw new Error(error.error || 'Firmware download failed.'); }
     const buffer = await response.arrayBuffer();
-    await verifyImage(buffer, image);
+    if (target.chipFamily === 'NRF52840') await verifyNrfImage(buffer, image, target, $('nrf-softdevice').value);
+    else await verifyImage(buffer, image);
     if (target.chipFamily === 'NRF52840') {
       binaryURL = URL.createObjectURL(new Blob([buffer], {type:'application/octet-stream'}));
       $('save-firmware').href = binaryURL;

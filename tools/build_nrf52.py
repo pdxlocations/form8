@@ -14,7 +14,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 START, END, FAMILY = 0x27000, 0xED000, 0xADA52840
 
-def parse_hex(path):
+def parse_hex(path, start=START):
     memory, base = {}, 0
     for line in path.read_text().splitlines():
         if not line.startswith(':'):
@@ -26,7 +26,7 @@ def parse_hex(path):
         if kind == 0:
             for i, value in enumerate(data[4:4+count]):
                 target = base + address + i
-                if not START <= target < END:
+                if not start <= target < END:
                     raise ValueError(f'Image would overwrite reserved memory at {target:#x}')
                 if target in memory and memory[target] != value:
                     raise ValueError('Overlapping HEX records')
@@ -37,10 +37,10 @@ def parse_hex(path):
             base = int.from_bytes(data[4:6], 'big') << 4
         elif kind not in (1, 3, 5):
             raise ValueError('Unsupported HEX record')
-    if any(START+i not in memory for i in range(8)):
-        raise ValueError('Missing application vector table at 0x27000')
-    sp, pc = struct.unpack('<II', bytes(memory[START+i] for i in range(8)))
-    if not 0x20008000 < sp <= 0x20040000 or not (pc & 1 and START <= (pc & ~1) < END):
+    if any(start+i not in memory for i in range(8)):
+        raise ValueError(f'Missing application vector table at {start:#x}')
+    sp, pc = struct.unpack('<II', bytes(memory[start+i] for i in range(8)))
+    if not 0x20008000 < sp <= 0x20040000 or not (pc & 1 and start <= (pc & ~1) < END):
         raise ValueError('Invalid nRF52840 vector table')
     return memory
 
@@ -75,7 +75,7 @@ def main():
     for target in catalog:
         name = 'form8-'+target['environment']
         source = ROOT/'.pio/build'/target['environment']/'firmware.hex'
-        memory = parse_hex(source)
+        memory = parse_hex(source, int(target.get('applicationStart', '0x27000'), 0))
         for suffix, data in [('hex', source.read_bytes()), ('uf2', to_uf2(memory))]:
             path = dest/f'{name}.{suffix}'
             path.write_bytes(data)
@@ -84,8 +84,10 @@ def main():
     (dest/'SHA256SUMS-NRF52').write_text('\n'.join(checksums)+'\n')
     (dest/'README-NRF52.txt').write_text(
         'Form8 nRF52840 application images (experimental; hardware testing required)\n\n'
-        'Requires the correct board UF2 bootloader with Nordic S140 7.3.0 already installed.\n'
-        'Application starts at 0x27000; images do not install or replace the SoftDevice or bootloader.\n'
+        'Match the image to the installed SoftDevice in INFO_UF2.TXT.\n'
+        'form8-rak4631-s140-6-1-1: stock RAK S140 6.1.1, application at 0x26000.\n'
+        'All other targets: S140 7.3.0, application at 0x27000.\n'
+        'Images do not install or replace the SoftDevice or bootloader.\n'
         'Check INFO_UF2.TXT in bootloader mode before copying the matching UF2.\n'
         'Do not use ESP32 web flashing or upload a filesystem image for these boards.\n'
         'Android app: Settings > Radio connection > Bluetooth or USB serial > Find radios > Connect.\n'

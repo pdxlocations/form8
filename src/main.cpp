@@ -155,9 +155,9 @@ bool persistRecord(const Record& r) {
   if(have(r.id)) { JsonDocument m;return readJson(path(r.id,".meta"),m) && m["hash"].as<uint32_t>()==r.hash; }
   persistError="Form validation failed; form was not saved";
   JsonDocument body;if(deserializeJson(body,r.body)||!validForm(body))return false;
-  persistError="Record limit reached (512 retained records)";
+  persistError="Message history full (512 records). Archive forms you want to keep, then remove an old incident to free message slots";
   if(allIds(false).size()>=MAX_RECORDS)return false;
-  persistError="Storage full; archive or discard selected form bodies";
+  persistError="Storage full. Open a Traffic message and choose Archive on this device or Remove message";
   if(LittleFS.totalBytes()-LittleFS.usedBytes()<STORAGE_RESERVE+r.body.size()+8192)return false;
   persistError="Cannot write form body to radio storage; check USB serial logs";
   if(!atomicWrite(path(r.id,".body"),String(r.body.c_str())))return false;
@@ -289,6 +289,15 @@ void saveConfig() {
   prefs.putBool("alternate",useBackup);prefs.putBool("tx",txEnabled);prefs.putBool("paused",paused);
   prefs.putBool("posEnabled",positionEnabled);prefs.putUInt("posInterval",positionInterval);
 }
+bool leaveIncident() {
+  // Persist leaving before deleting anything; a reboot must not rejoin it.
+  if(prefs.putString("incident","0000000000000000")!=16)return false;
+  // Preferences returns the string length, so a successful empty write is 0.
+  prefs.putString("name","");if(prefs.getString("name","not-cleared")!="")return false;
+  active=0;activeName="";mesh->setIncident(0);retries.clear();humanAckRetries.clear();chatRetries.clear();
+  broadcasts.reset(millis());positionSchedule.reset(millis());stationDirty=true;inventoryCursor=0;
+  return true;
+}
 void api() {
   chatApi();
   apiOn("/api/status",HTTP_GET,[]{
@@ -358,6 +367,33 @@ void api() {
     active=next;activeName=name;mesh->setIncident(active);retries.clear();humanAckRetries.clear();chatRetries.clear();broadcasts.reset(millis());positionSchedule.reset(millis());stationDirty=true;saveConfig();inventoryCursor=0;
     JsonDocument out;out["id"]=hex64(active);respond(200,out);
   });
+  apiOn("/api/incident/leave",HTTP_POST,[]{
+    if(!leaveIncident()){error(507,"Could not save incident change");return;}
+    JsonDocument out;out["saved"]=true;respond(200,out);
+  });
+  apiOn("/api/incident/remove",HTTP_POST,[]{
+    JsonDocument d;if(!input(d))return;String value=d["id"]|"";
+    if(!parseHex(value,16)||!parse64(value)){error(400,"Valid incident ID required");return;}
+    if(!fsReady){error(507,"Storage unavailable");return;}
+    const uint64_t removing=parse64(value);
+    if(active==removing&&!leaveIncident()){error(507,"Could not leave incident; nothing removed");return;}
+    unsigned forms=0,chats=0;
+    for(const auto& id:allIds(false)){
+      JsonDocument m;if(!readJson(path(id,".meta"),m)||parse64(m["incident"]|"")!=removing)continue;
+      for(const char* suffix:{".body",".body.tmp",".meta.tmp",".meta"}){
+        String file=path(id,suffix);if(LittleFS.exists(file)&&!LittleFS.remove(file)){error(507,"Cleanup incomplete; refresh and retry removing this incident");return;}
+      }
+      ++forms;
+    }
+    for(const auto& item:chatIds(false)){
+      JsonDocument m;if(!readJson(chatPath(item.id),m)||parse64(m["incident"]|"")!=removing)continue;
+      if(!LittleFS.remove(chatPath(item.id))){error(507,"Chat cleanup incomplete; refresh and retry");return;}++chats;
+    }
+    String file="/incidents/"+hex64(removing)+".json";
+    if(LittleFS.exists(file)&&!LittleFS.remove(file)){error(507,"Could not remove incident entry; retry");return;}
+    if(chats){++chatRevision;}stationDirty=true;
+    JsonDocument out;out["saved"]=true;out["forms"]=forms;out["chatEvents"]=chats;respond(200,out);
+  });
   apiOn("/api/incidents",HTTP_GET,[]{
     JsonDocument d;JsonArray a=d["incidents"].to<JsonArray>();File dir=LittleFS.open("/incidents");File f=dir.openNextFile();
     while(f){JsonDocument e;if(!deserializeJson(e,f))a.add(e.as<JsonVariantConst>());f.close();f=dir.openNextFile();}respond(200,d);
@@ -370,7 +406,9 @@ void api() {
   });
   apiOn("/api/forms",HTTP_GET,[]{
     JsonDocument d;JsonArray a=d["forms"].to<JsonArray>();bool archives=apiArg("all")=="1";
-    auto ids=allIds(!archives);size_t offset=apiArg("offset").toInt();
+    auto ids=allIds(!archives);
+    if(apiArg("history")!="1")ids.erase(std::remove_if(ids.begin(),ids.end(),[](const Id& id){JsonDocument m;return readJson(path(id,".meta"),m)&&String(m["state"]|"")!="stored";}),ids.end());
+    size_t offset=apiArg("offset").toInt();
     String selected=apiArg("selected");
     if(parseHex(selected,32)) {
       auto found=std::find(ids.begin(),ids.end(),parseId(selected));
@@ -427,7 +465,7 @@ void api() {
     Id id=parseId(s);JsonDocument m;if(!readJson(path(id,".meta"),m)){error(404,"Unknown form");return;}
     if(mode=="archive" && (!d["verified"].as<bool>() || d["hash"].as<uint32_t>()!=m["hash"].as<uint32_t>())){error(409,"Verified client archive required");return;}
     formAddresses(m,id);
-    m["state"]=mode=="archive"?"archived":"discarded";
+    m["state"]=mode=="archive"?"archived":"discarded";m["unread"]=false;
     if(!writeJson(path(id,".meta"),m)){error(507,"Cannot save offload record");return;}
     LittleFS.remove(path(id,".body"));
     stationDirty=true;

@@ -34,7 +34,7 @@ test('open form refreshes body/state without marking other incoming forms read',
   await h.poll();
   assert.ok(h.$('#form-detail').children.some(e=>e.value==='New message'));
   h.setRecord({meta:{id:'abc',state:'offloaded',subject:'Hello'}});await h.poll();
-  assert.ok(h.$('#form-detail').children.some(e=>e.value?.includes('offloaded or discarded')));
+  assert.ok(h.$('#form-detail').children.some(e=>e.value?.includes('removed locally')));
   assert.ok(!h.calls.includes('read'));
 });
 

@@ -30,4 +30,10 @@ This uses a fresh onboard GPS fix when available, otherwise the phone/laptop loc
 
 ## Switch incidents
 
-Open **Incidents** and join a nearby or retained incident. Your radio has one active incident at a time. Switching stops transmission of the previous incident's forms until you join it again; its saved forms remain on the radio. **Include previous incidents** in Traffic lets you view retained traffic from other incidents.
+Open **Incidents** and join a nearby or saved incident. Your radio has one active incident at a time. Switching stops transmission of the previous incident's forms until you join it again; its saved forms remain on the radio. **Include previous incidents** in Traffic lets you view retained traffic from other incidents.
+
+## Archive, remove, or leave
+
+An open message has an **Archive or remove** section. **Archive on this device** keeps a verified copy in Device archive and removes the body from normal Traffic. **Remove message…** removes it without creating an archive. Both keep existing device archives and other nodes’ copies. **Show archived and removed entries** reveals retained delivery history.
+
+In **Incidents**, **Leave** stops participation while keeping messages. **Remove incident…** deletes that incident’s local forms and chat, leaving first if it is active. [Cleanup and backup instructions](Archives).

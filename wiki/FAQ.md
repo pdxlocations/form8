@@ -59,7 +59,7 @@ Browser drafts and archives use IndexedDB, a local browser database. They do not
 
 ## How many messages fit on a radio?
 
-The firmware caps storage at **512 records across all retained incidents**, and also checks available space. Long forms and receipt information use more storage. Archiving frees message-body space, but retained metadata still counts toward the record limit.
+The firmware caps storage at **512 records across all retained incidents**, and also checks available space. Long forms and receipt information use more storage. Archiving frees message-body space, but retained metadata still counts toward the record limit. **Remove incident…** deletes that incident’s local history and frees its record slots; export or archive any forms you want to keep first.
 
 The project aims for 10–200 forms per day and up to 30 nodes. Those are design targets, not measured RF capacity claims.
 
@@ -82,3 +82,13 @@ Yes. SX1262 targets accept 2–22 dBm, SX1276 accepts 2–20 dBm, and T-Beam BPF
 ## Can I use an nRF52 board?
 
 Yes. Nine nRF52840 targets use Bluetooth or USB CDC serial with the Android companion. The app holds the interface and message bodies; keep it open for durable receiving and ACKs. There is no Wi-Fi hotspot on these targets. See [nRF52 and Android](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) for compatible boards, bootloader prerequisites, and APK installation.
+
+## Which firmware does my RAK4631 need?
+
+Double-press Reset and read the **SoftDevice** line in `INFO_UF2.TXT`. **S140 6.1.1** needs `form8-rak4631-s140-6-1-1.uf2`; **S140 7.3.0** needs `form8-rak4631.uf2`. The bootloader version (for example, 0.4.2) is a separate number. The flasher requires an explicit matching SoftDevice selection for every nRF target and blocks unchecked or mismatched downloads. The 6.1.1 build works with that stock setup without a bootloader upgrade. [Complete selection and installation steps](nRF52-and-Android#which-rak4631-firmware-should-i-install).
+
+## How do I remove old messages and incidents?
+
+In an open Traffic message, **Archive on this device** keeps a verified copy in Device archive; **Remove message…** removes it without making a new archive. Both hide the entry from normal Traffic. **Show archived and removed entries** reveals the retained delivery history.
+
+In **Incidents**, **Leave** stops participating while keeping data. **Remove incident…** deletes that incident’s local forms, delivery records, and chat; if active, it leaves first. Saved device archives and other nodes’ copies are kept. [Complete cleanup instructions](Archives).

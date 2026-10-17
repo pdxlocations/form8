@@ -1,4 +1,5 @@
 #include <Mesh.h>
+#include <NodeId.h>
 #include <RecordName.h>
 #include <DeliveryRetry.h>
 #include <TrafficSchedule.h>
@@ -28,6 +29,14 @@ struct Node {
 };
 void exchange(Node& a,Node& b,uint32_t now){Frame f;while(a.mesh.next(now,f)){auto bytes=encode(f);b.mesh.receive(bytes.data(),bytes.size(),now,0);a.mesh.transmitted(f,now);}}
 int main(){
+  // Firmware handshakes, BLE names and incident IDs preserve all 64 bits
+  // without relying on newlib-nano's unsupported %llx formatter.
+  for(const auto& example:std::map<uint64_t,std::string>{{0,"0000000000000000"},{1,"0000000000000001"},{0x00000000ffffffffULL,"00000000ffffffff"},{0x0123456789abcdefULL,"0123456789abcdef"},{0xfedcba9876543210ULL,"fedcba9876543210"},{UINT64_MAX,"ffffffffffffffff"}}){
+    const auto encoded=formatNodeId(example.first);
+    assert(encoded[16]=='\0' && std::string(encoded.data())==example.second);
+    assert(std::stoull(encoded.data(),nullptr,16)==example.first);
+  }
+
   // GPS selection, compact position codec, quiet scheduling and incident isolation.
   PositionFix gps{45.52,-122.68,-1,true,true,100,0},phone{46,-123,8,false,true,200,0};
   assert(preferredPosition(gps,phone,300).radio);

@@ -16,7 +16,7 @@
 - [Read, acknowledge, reply, or correct](https://github.com/pdxlocations/form8/wiki/Forms-and-Drafts)
 - [Location sharing and offline maps](https://github.com/pdxlocations/form8/wiki/Map-and-Location)
 - [Use incident chat](https://github.com/pdxlocations/form8/wiki/Chat)
-- [Save an archive and free storage](https://github.com/pdxlocations/form8/wiki/Archives)
+- [Archive messages and clean up incidents](https://github.com/pdxlocations/form8/wiki/Archives)
 - [Update an existing radio](https://github.com/pdxlocations/form8/wiki/Update-Firmware)
 - [Frequently asked questions](https://github.com/pdxlocations/form8/wiki/FAQ)
 - [Troubleshooting](https://github.com/pdxlocations/form8/wiki/Troubleshooting)

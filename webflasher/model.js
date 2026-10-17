@@ -56,7 +56,62 @@ export function validateNrfTargets(catalog, checksums, release) {
     return asset && hashes.has(file) && Number.isSafeInteger(asset.bytes) && asset.bytes > 0 && asset.bytes <= 8*1024*1024
       ? {file, bytes:asset.bytes, sha256:hashes.get(file)} : null;
   };
-  return catalog.filter(t => /^[a-z0-9-]+$/.test(t.environment) && typeof t.board === 'string')
+  return catalog.filter(t => t && /^[a-z0-9-]+$/.test(t.environment) && typeof t.board === 'string'
+    && nrfApplicationStart(t) !== null)
     .map(t => ({...t, chipFamily:'NRF52840', experimental:true, uf2:image(t.environment,'uf2'), hex:image(t.environment,'hex')}))
     .filter(t => t.uf2);
+}
+
+// Fail closed: every downloadable nRF profile names its required SoftDevice/layout.
+export function nrfApplicationStart(target) {
+  const start={'6.1.1':0x26000,'7.3.0':0x27000}[target?.softdevice];
+  return start && target.applicationStart===`0x${start.toString(16)}` ? start : null;
+}
+export function nrfCompatibility(target, installed) {
+  if(nrfApplicationStart(target)===null)return {ok:false,message:'This build has no verified SoftDevice requirement. Choose another build.'};
+  if(!installed)return {ok:false,message:'Read the installed SoftDevice version from INFO_UF2.TXT or the board’s programming tools, then select it below. The bootloader version is a different number.'};
+  if(!['6.1.1','7.3.0'].includes(installed))return {ok:false,message:'No compatible build can be confirmed. Identify the installed SoftDevice before downloading.'};
+  if(installed!==target.softdevice)return {ok:false,message:`Version mismatch: your board has S140 ${installed}; this image requires S140 ${target.softdevice}. Choose a matching board profile or release. Do not install this image.`};
+  return {ok:true,message:`Match confirmed: installed S140 ${installed} matches this build. The website relies on the version you checked; it cannot read your radio automatically.`};
+}
+export async function verifyNrfImage(buffer,image,target,installed,cryptoProvider=globalThis.crypto) {
+  const compatibility=nrfCompatibility(target,installed);
+  if(!compatibility.ok)throw new Error(compatibility.message);
+  await verifyImage(buffer,image,cryptoProvider);
+  const start=nrfApplicationStart(target),end=0xed000,memory=new Map(),occupied=new Uint8Array(end-start);
+  function add(address,data){
+    if(address<start || address+data.length>end)throw new Error('Firmware overlaps reserved SoftDevice, filesystem, or bootloader memory.');
+    for(let i=0;i<data.length;i++){
+      if(occupied[address+i-start])throw new Error('Firmware contains overlapping application data.');
+      occupied[address+i-start]=1;
+      if(address+i<start+8)memory.set(address+i,data[i]);
+    }
+  }
+  if(image.file.endsWith('.uf2')){
+    if(!buffer.byteLength || buffer.byteLength%512)throw new Error('Invalid UF2 block size.');
+    for(let offset=0;offset<buffer.byteLength;offset+=512){
+      const view=new DataView(buffer,offset,512),size=view.getUint32(16,true);
+      if(view.getUint32(0,true)!==0x0a324655 || view.getUint32(4,true)!==0x9e5d5157 || view.getUint32(508,true)!==0x0ab16f30
+        || view.getUint32(8,true)!==0x2000 || view.getUint32(28,true)!==0xada52840 || size!==256
+        || view.getUint32(20,true)!==offset/512 || view.getUint32(24,true)!==buffer.byteLength/512)throw new Error('Invalid nRF52840 application UF2.');
+      add(view.getUint32(12,true),new Uint8Array(buffer,offset+32,size));
+    }
+  }else if(image.file.endsWith('.hex')){
+    let base=0,eof=false;
+    for(const line of new TextDecoder('utf-8',{fatal:true}).decode(buffer).split(/\r?\n/)){
+      if(!line.trim())continue;
+      if(eof || !/^:(?:[a-f0-9]{2})+$/i.test(line))throw new Error('Invalid Intel HEX record.');
+      const bytes=Uint8Array.from(line.slice(1).match(/../g),part=>parseInt(part,16));
+      const count=bytes[0],address=(bytes[1]<<8)|bytes[2],kind=bytes[3];
+      if(bytes.length!==count+5 || bytes.reduce((sum,b)=>sum+b,0)%256)throw new Error('Invalid Intel HEX checksum or length.');
+      if(kind===0)add(base+address,bytes.slice(4,4+count));
+      else if(kind===1&&count===0)eof=true;
+      else if((kind===2||kind===4)&&count===2)base=((bytes[4]<<8)|bytes[5])*(kind===2?16:65536);
+      else if(!([3,5].includes(kind)&&count===4))throw new Error('Unsupported Intel HEX record.');
+    }
+    if(!eof)throw new Error('Incomplete Intel HEX file.');
+  }else throw new Error('Unsupported nRF file format.');
+  if(Array.from({length:8},(_,i)=>start+i).some(address=>!memory.has(address)))throw new Error('Application start does not match the selected SoftDevice version.');
+  const vectors=new DataView(Uint8Array.from({length:8},(_,i)=>memory.get(start+i)).buffer),sp=vectors.getUint32(0,true),pc=vectors.getUint32(4,true);
+  if(sp<=0x20008000 || sp>0x20040000 || !(pc&1) || pc-1<start || pc-1>=end)throw new Error('Invalid application vector table.');
 }

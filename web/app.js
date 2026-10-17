@@ -361,7 +361,7 @@ async function refreshScreen() {
     $('#storage').textContent=`${(next.storageUsed/1048576).toFixed(1)} / ${(next.storageTotal/1048576).toFixed(1)} MB${next.companionStorage?' · companion storage':''}`;
     $('#queue').textContent=`${next.queue} queue items`;
     $('#warning').hidden=!next.storageWarning && next.fsReady && next.radioReady;
-    $('#warning').textContent=!next.fsReady?'Radio storage unavailable. Upload the filesystem image for first setup; do not overwrite an existing incident filesystem.':next.companionConnected===false?'Radio disconnected. Data stays on this companion; reconnect to send or receive.':!next.radioReady?`Radio initialization failed (${next.radioError}).`: 'Storage is running low. Archive older delivered forms or explicitly discard selected bodies.';
+    $('#warning').textContent=!next.fsReady?(next.companionStorage?'Radio settings storage is unavailable. Reconnect and check the radio firmware; nRF radios do not use filesystem uploads.':'Radio storage unavailable. Upload the filesystem image only for first setup; do not overwrite existing messages.'):next.companionConnected===false?'Radio disconnected. Data stays on this companion; reconnect to send or receive.':!next.radioReady?`Radio initialization failed (${next.radioError}).`: 'Storage is nearly full. Archive messages, or remove an old incident to free its message slots.';
     $('#board-info').textContent=`${next.board} · ${next.band.toUpperCase()} profile · ${next.clockSource}${Number.isFinite(next.batteryPercent)?` · Battery ~${next.batteryPercent}%`:next.batteryMillivolts>0?` · Battery ${(next.batteryMillivolts/1000).toFixed(2)} V`: ""}${next.powerNote?` · ${next.powerNote}`:''}`;
     const powerMin=next.powerMin??2,powerMax=next.powerMax??(next.band==='vhf'?10:20);
     const powerField=$('#radio-settings').elements.power;powerField.min=powerMin;powerField.max=powerMax;
@@ -412,7 +412,7 @@ function renderReceipts(m) {
 }
 async function loadTraffic() {
   const selected=selectedForm,all=$('#all-incidents').checked;
-  const result=await api(`forms?offset=${offset}${all?'&all=1':''}${selected?`&selected=${selected}`:''}`);
+  const result=await api(`forms?offset=${offset}${all?'&all=1':''}${$('#show-removed').checked?'&history=1':''}${selected?`&selected=${selected}`:''}`);
   if(selected!==selectedForm || all!==$('#all-incidents').checked)return;
   total=result.total;offset=result.offset;
   messageNeighbors={previous:result.previous||null,next:result.next||null};renderMessageNavigation();
@@ -485,19 +485,25 @@ function renderForm(record) {
     if(canReplyToForm(m,status))actions.append(button('Reply',()=>replyToForm(record)));
     actions.append(button('Correction',async()=>{
       await saveDraft();const corrected={...d,clientToken:token(),parent:id,subject:`Correction: ${d.subject||''}`.slice(0,160)};delete corrected.boundIncident;fill(corrected);await saveDraft();showTab('compose');
-    }),button('Archive & free radio storage',async()=>{
-      const pending=receiptRows(m,status?.peers||[],status?.node).filter(r=>!r.received).length;
-      if(!confirm(`Save and verify a copy on this device, then remove this radio's form body? ${pending} tracked nodes still pending. Delivery status will stay unchanged.`))return;
+    }));detail.append(actions);
+    const storage=text('section','','message-storage');storage.append(text('h4','Archive or remove'),text('p',`Archive keeps a verified copy on this device. Remove takes the message out of Traffic on ${localStoreName()}. Other nodes keep their copies.`,'muted'));
+    const cleanup=text('div','','actions');
+    cleanup.append(button('Archive on this device',async()=>{
+      if(!confirm(`Save a verified copy in Archive on this device, then remove the message from Traffic on ${localStoreName()}? Other nodes keep their copies.`))return;
       verifyArchive(record);await db('archives','put',{...record,id:m.id,archivedAt:Date.now()});
       verifyArchive(await db('archives','get',m.id));await api('offload',{id,mode:'archive',hash:m.hash,verified:true});
-      feedback('Archive verified on this device. Radio body removed; receipt history retained.');await loadTraffic();await openForm(id);
-    }),button('Discard locally',async()=>{
-      if(!confirm('Discard this radio’s form body without making an archive? Other nodes keep their copies. This radio will not automatically download it again.'))return;
-      await api('offload',{id,mode:'discard'});await loadTraffic();await openForm(id);
-    },'danger'));detail.append(actions);
-  }else detail.append(text('p','The body has been offloaded or discarded on this radio. Check the device archive.','muted'));
+      await backToTraffic();await poll();feedback('Saved in Archive on this device and removed from Traffic.');
+    }),button('Remove message…',async()=>{
+      if(!confirm(`Remove this message from ${localStoreName()} without saving an archive? This cannot be undone here. Other nodes and existing archives keep their copies.`))return;
+      await api('offload',{id,mode:'discard'});await backToTraffic();await poll();feedback(`Message removed from ${localStoreName()}. Other nodes and saved archives are unchanged.`);
+    },'danger'));storage.append(cleanup);detail.append(storage);
+  }else {
+    detail.append(text('p',m.state==='archived'?'This message was archived on the device that saved it. Its body has been removed from Traffic.':'This message was removed locally. Other nodes may still have a copy.','muted'));
+    if(m.state==='archived')detail.append(button('Open device archive',()=>showTab('archive')));
+  }
   const delivery=text('div','');delivery.id='delivery-detail';delivery.setAttribute('aria-live','polite');detail.append(delivery);renderReceipts(m);
 }
+function localStoreName(){return status?.companionStorage?'this app':'this node';}
 function setTrafficView() {
   const reading=!!selectedForm;
   $('#traffic-overview').hidden=reading;$('#message-reader').hidden=!reading;
@@ -526,7 +532,7 @@ for(const refresh of document.querySelectorAll('[data-refresh]'))refresh.onclick
   const label=refresh.textContent;refresh.disabled=true;refresh.textContent='Refreshing…';
   try {await refreshData(refresh.dataset.refresh);}finally{refresh.disabled=false;refresh.textContent=label;}
 });
-$('#all-incidents').onchange=run(async()=>{offset=0;await loadTraffic();});
+$('#all-incidents').onchange=$('#show-removed').onchange=run(async()=>{offset=0;await loadTraffic();});
 $('#previous-page').onclick=run(async()=>{offset=Math.max(0,offset-20);await loadTraffic();});$('#next-page').onclick=run(async()=>{offset+=20;await loadTraffic();});
 async function joinIncident(name,id) {await api('incident',{name,id});await poll();feedback(`Joined ${name}. Previous incident traffic is paused.`);await loadIncidents();}
 $('#create-incident').onsubmit=run(async event=>{event.preventDefault();await joinIncident(event.target.elements.name.value);event.target.reset();});
@@ -534,10 +540,25 @@ async function loadIncidents() {
   await poll();renderNearbyIncidents();await loadRetainedIncidents();
 }
 async function loadRetainedIncidents() {
-  const result=await api('incidents'),retained=$('#retained');retained.replaceChildren();for(const i of result.incidents)appendIncident(retained,i.name,i.id);
+  const result=await api('incidents'),retained=$('#retained');retained.replaceChildren();for(const i of result.incidents)appendIncident(retained,i.name,i.id,true);
 }
-function appendIncident(container,name,id) {
-  const row=text('div','','incident-item');row.append(text('div',`${name} · ${id}`),button(id===status?.incident?'Active':'Join',()=>joinIncident(name,id)));container.append(row);
+async function leaveIncident(){
+  if(!confirm('Leave the active incident? Transmission and relaying for it stop. Saved messages stay available under previous incidents.'))return;
+  await api('incident/leave',{});await poll();await loadRetainedIncidents();feedback('Incident left. Saved messages are still available under previous incidents.');
+}
+async function removeIncident(name,id){
+  const leaving=status?.incident===id?'You will also leave this incident and stop relaying its traffic. ':'';
+  if(!confirm(`Remove “${name}” and all its forms, receipts, and chat from ${localStoreName()}? ${leaving}This cannot be undone. Export any forms you want to keep first. Archives and drafts on this device, and other nodes’ copies, are kept.`))return;
+  await api('incident/remove',{id});selectedForm=null;displayedRecord='';offset=0;setTrafficView();
+  await poll();await loadRetainedIncidents();feedback(`Incident and its local messages removed from ${localStoreName()}. Nearby nodes may still advertise it.`);
+}
+function appendIncident(container,name,id,saved=false) {
+  const row=text('div','','incident-item'),actions=text('div','','actions');
+  row.append(text('div',`${name} · ${id}`));
+  if(id===status?.incident){actions.append(text('span','Active','badge'));if(saved)actions.append(button('Leave',leaveIncident));}
+  else actions.append(button('Join',()=>joinIncident(name,id)));
+  if(saved)actions.append(button('Remove incident…',()=>removeIncident(name,id),'danger'));
+  row.append(actions);container.append(row);
 }
 function renderNearbyIncidents() {
   const nearby=$('#nearby');nearby.replaceChildren();const seen=new Set();
@@ -547,7 +568,10 @@ function renderNearbyIncidents() {
 async function loadArchives() {
   const list=$('#archive-list');list.replaceChildren();
   for(const record of await db('archives','getAll')){
-    const row=text('div','','archive-item');row.append(text('div',`${record.meta.subject||'General message'} · ${record.meta.incident}`),button('Read',()=>{const d=JSON.parse(record.body);const pre=text('pre',d.message,'message');row.append(pre);}),button('Export',()=>download([record])));list.append(row);
+    const row=text('div','','archive-item');row.append(text('div',`${record.meta.subject||'General message'} · ${record.meta.incident}`),button('Read',()=>{const d=JSON.parse(record.body);const pre=text('pre',d.message,'message');row.append(pre);}),button('Export',()=>download([record])),button('Delete archive…',async()=>{
+      if(!confirm('Delete this archived copy from this device? The copy on this device will be lost. Other nodes and stored traffic are unchanged.'))return;
+      await db('archives','delete',record.id);await loadArchives();feedback('Archived copy deleted from this device.');
+    },'danger'));list.append(row);
   }
   if(!list.children.length)list.append(text('p','No archived forms on this device.','muted'));
 }

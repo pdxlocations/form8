@@ -3,3 +3,7 @@
 .project-description{font-size:14px;line-height:1.65;max-width:620px;color:var(--muted);margin:12px 0 10px}.project-link{display:inline-block;font-size:13px;font-weight:600}
 
 .requirements{margin-top:20px;padding:16px 18px;border:1px solid var(--line);border-radius:4px;background:#fff;font-size:13px;line-height:1.6}.requirements h2{font-size:15px;letter-spacing:0}.requirements ul{padding-left:20px;margin:8px 0}.requirements li{margin:4px 0}.requirements p{margin:8px 0 0;color:var(--muted)}
+
+.rak-guide{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:13px;line-height:1.6}.rak-guide summary{font-weight:600;cursor:pointer;color:var(--green)}.rak-guide p{margin:10px 0;color:var(--muted)}.rak-guide table{width:100%;border-collapse:collapse;table-layout:fixed;margin:12px 0}.rak-guide th,.rak-guide td{text-align:left;vertical-align:top;padding:9px 8px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.rak-guide th:first-child{width:30%}.rak-guide code{font-size:11px;overflow-wrap:anywhere}
+
+#nrf-compatibility.error{color:#983b28;font-weight:600}

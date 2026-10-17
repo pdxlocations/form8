@@ -20,6 +20,7 @@ def main():
     environments = {section[4:]: options for section, options in config.items()
                     if section.startswith('env:')}
     catalogs = {}
+    nrf_profiles = {}
     for filename, platform in [('firmware-targets.json', 'espressif32@6.13.0'),
                                ('nrf52-targets.json', 'nordicnrf52@10.11.0')]:
         entries = json.loads((ROOT/'config'/filename).read_text())
@@ -28,6 +29,8 @@ def main():
             raise SystemExit(f'Duplicate targets in {filename}')
         for name in names:
             catalogs[name] = platform
+        if platform.startswith('nordic'):
+            nrf_profiles = {entry['environment']: entry for entry in entries}
     if environments.keys() != catalogs.keys():
         raise SystemExit('The combined project environments must match both firmware catalogs')
     for name, platform in catalogs.items():
@@ -38,6 +41,12 @@ def main():
         if platform.startswith('nordic'):
             if scripts != ['pre:tools/nrf_build.py'] or env.get('board_build.filesystem'):
                 raise SystemExit(f'{name} inherited ESP32 build settings')
+            profile = nrf_profiles[name]
+            version = profile.get('softdevice')
+            expected = {'6.1.1': ('0x26000', 'firmware/nrf52/app-s140-6.ld'),
+                        '7.3.0': ('0x27000', 'firmware/nrf52/app.ld')}.get(version)
+            if not expected or profile.get('applicationStart') != expected[0] or env.get('board_build.softdevice.sd_version') != version or env.get('board_build.ldscript') != expected[1]:
+                raise SystemExit(f'{name} catalog and compiled SoftDevice layout differ')
         elif 'pre:tools/embed_web.py' not in scripts or 'pre:tools/nrf_build.py' in scripts:
             raise SystemExit(f'{name} inherited nRF build settings')
     if any(name not in environments for name in config['platformio']['default_envs']):

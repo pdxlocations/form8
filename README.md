@@ -4,9 +4,20 @@ Form8 exchanges **Portland NET Form 8 / ICS 213 messages and short chat messages
 
 Forms support radio receipts, manual acknowledgments, replies, corrections, and device archives. Chat supports emoji, reactions, and replies. A map shows incident stations, with automatic GPS positioning, configurable position sharing, and downloadable U.S. topo maps for offline use. The interface fits a phone screen; on nRF radios, the app carries the interface and message storage.
 
-Nine nRF52840 targets include RAK4631, WisMesh Tag, T-Echo, Heltec T114/T096, and Seeed T1000-E, Wio Tracker L1, Solar Node, and XIAO nRF52 Kit. ESP32 builds cover Heltec V3/V4, Seeed XIAO ESP32S3 with Wio-SX1262, LILYGO T3-S3, original ESP32 T-Beam, and T-LoRa/LoRa32 revisions; T-Beam BPF is experimental. **Radio traffic is plaintext and unauthenticated.** Form8 uses its own protocol and does not communicate with Meshtastic or MeshCore. Physical range and reliability still need testing.
+Nine nRF52840 board families include RAK4631, WisMesh Tag, T-Echo, Heltec T114/T096, and Seeed T1000-E, Wio Tracker L1, Solar Node, and XIAO nRF52 Kit. ESP32 builds cover Heltec V3/V4, Seeed XIAO ESP32S3 with Wio-SX1262, LILYGO T3-S3, original ESP32 T-Beam, and T-LoRa/LoRa32 revisions; T-Beam BPF is experimental. **Radio traffic is plaintext and unauthenticated.** Form8 uses its own protocol and does not communicate with Meshtastic or MeshCore. Physical range and reliability still need testing.
 
 **[Android & nRF setup](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) · [Install / update](https://form8.pdxlocs.com) · [Documentation & FAQ](https://github.com/pdxlocations/form8/wiki) · [Firmware releases](https://github.com/pdxlocations/form8/releases)**
+
+## RAK4631: choose the matching firmware
+
+Double-press **Reset** and read the **SoftDevice** line in `INFO_UF2.TXT` on the RAK USB drive:
+
+| Installed SoftDevice | Download |
+|---|---|
+| **S140 6.1.1** (stock RAK bootloaders, including 0.4.2) | `form8-rak4631-s140-6-1-1.uf2` |
+| **S140 7.3.0** | `form8-rak4631.uf2` |
+
+Match the **SoftDevice version**, not the bootloader version. The 6.1.1 build works with the existing stock bootloader; no bootloader upgrade is needed. Choose a release containing the matching file. The flasher requires you to enter the installed SoftDevice version and blocks unchecked or mismatched nRF downloads. [Step-by-step nRF installation](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android#which-rak4631-firmware-should-i-install).
 
 ## Screenshots
 

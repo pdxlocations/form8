@@ -42,6 +42,19 @@
         <label for="board">2. Your board</label>
         <select id="board" disabled><option>Choose a release first</option></select>
         <p id="board-info" class="hint">Match the exact board, radio chip, and Heltec V4 revision. USB detects the processor, not the board model.</p>
+        <details class="rak-guide">
+          <summary>RAK4631: which version should I choose?</summary>
+          <p>Double-press <strong>Reset</strong>, open the <strong>RAK4631</strong> USB drive, and read <code>INFO_UF2.TXT</code>. Match its <strong>SoftDevice</strong> line—not the bootloader version.</p>
+          <table>
+            <thead><tr><th>SoftDevice line</th><th>Choose this board option</th></tr></thead>
+            <tbody>
+              <tr><td><strong>S140 6.1.1</strong></td><td>RAK4631 / WisBlock — <strong>stock S140 6.1.1</strong><br><code>form8-rak4631-s140-6-1-1.uf2</code></td></tr>
+              <tr><td><strong>S140 7.3.0</strong></td><td>RAK4631 / WisBlock — <strong>S140 7.3.0</strong><br><code>form8-rak4631.uf2</code></td></tr>
+            </tbody>
+          </table>
+          <p>A stock <strong>0.4.2</strong> bootloader can have <strong>S140 6.1.1</strong>. Use the 6.1.1 build for that setup; no bootloader upgrade is needed. If the matching option is missing, select a release containing that file and enable <strong>Show prereleases</strong> if needed.</p>
+          <p>After copying the UF2, the USB drive disappearing is normal. Let the radio restart, then scan for <strong>Form8-…</strong> in the companion app.</p>
+        </details>
       </div>
       <fieldset id="esp-mode" class="field">
         <legend>3. Installation type</legend>
@@ -51,7 +64,15 @@
       </fieldset>
       <section id="nrf-help" class="field" hidden>
         <h2>3. Download nRF firmware</h2>
-        <p class="hint">These experimental application images require the correct board bootloader and <strong>Nordic S140 7.3.0 already installed</strong>. They do not include a bootloader or SoftDevice. Check the board’s bootloader documentation before installing.</p>
+        <p class="hint">These experimental application images require the correct board bootloader and <strong>the matching Nordic S140 version already installed</strong>. Choose the stock S140 6.1.1 RAK4631 target when INFO_UF2.TXT says 6.1.1; the other targets require 7.3.0. They do not include a bootloader or SoftDevice. Check the board’s bootloader documentation before installing.</p>
+        <label for="nrf-softdevice">Installed SoftDevice — check your board first</label>
+        <select id="nrf-softdevice" aria-describedby="nrf-compatibility">
+          <option value="">Select the version you checked on this board</option>
+          <option value="6.1.1">S140 6.1.1</option>
+          <option value="7.3.0">S140 7.3.0</option>
+          <option value="unknown">Another version / unable to confirm</option>
+        </select>
+        <p id="nrf-compatibility" class="hint" role="status" aria-live="polite"></p>
         <label for="nrf-format">File format</label>
         <select id="nrf-format"><option value="uf2">UF2 — copy to a compatible bootloader drive</option><option value="hex">HEX — for compatible programming tools</option></select>
         <ol class="hint">

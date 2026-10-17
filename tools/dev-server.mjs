@@ -63,8 +63,18 @@ http.createServer(async(req,res)=>{
         state.incident=d.id||randomBytes(8).toString('hex');state.incidentName=d.name;
         if(!state.incidents.some(i=>i.id===state.incident))state.incidents.push({id:state.incident,name:d.name});output={id:state.incident};break;
       }
+      case 'POST /api/incident/leave':state.incident='0000000000000000';state.incidentName='';break;
+      case 'POST /api/incident/remove':{
+        if(!/^[a-f0-9]{16}$/.test(d.id||'')||/^0+$/.test(d.id))throw Error('Valid incident ID required');
+        if(state.incident===d.id){state.incident='0000000000000000';state.incidentName='';}
+        const forms=Object.values(state.forms).filter(r=>r.meta.incident===d.id).length;
+        const chats=Object.values(state.chats).filter(r=>r.meta.incident===d.id).length;
+        state.forms=Object.fromEntries(Object.entries(state.forms).filter(([,r])=>r.meta.incident!==d.id));
+        state.chats=Object.fromEntries(Object.entries(state.chats).filter(([,r])=>r.meta.incident!==d.id));
+        state.incidents=state.incidents.filter(i=>i.id!==d.id);output={saved:true,forms,chatEvents:chats};break;
+      }
       case 'GET /api/forms':{
-        const forms=Object.values(state.forms).map(f=>f.meta).filter(m=>url.searchParams.get('all')==='1'||m.incident===state.incident).sort((a,b)=>a.id.localeCompare(b.id));
+        const forms=Object.values(state.forms).map(f=>f.meta).filter(m=>(url.searchParams.get('all')==='1'||m.incident===state.incident)&&(url.searchParams.get('history')==='1'||m.state==='stored')).sort((a,b)=>a.id.localeCompare(b.id));
         const index=forms.findIndex(m=>m.id===url.searchParams.get('selected'));
         const offset=index>=0?Math.floor(index/20)*20:Number(url.searchParams.get('offset')||0);
         output={forms:forms.slice(offset,offset+20),total:forms.length,offset,previous:index>0?forms[index-1].id:null,next:index>=0&&index+1<forms.length?forms[index+1].id:null};break;
@@ -89,7 +99,7 @@ http.createServer(async(req,res)=>{
       case 'POST /api/offload':{
         const record=state.forms[d.id];if(!record)throw Error('Unknown form');
         if(d.mode==='archive'&&(!d.verified||d.hash!==record.meta.hash))throw Error('Verified archive required');
-        if(!['archive','discard'].includes(d.mode))throw Error('Invalid mode');record.meta.state=d.mode==='archive'?'archived':'discarded';delete record.body;break;
+        if(!['archive','discard'].includes(d.mode))throw Error('Invalid mode');record.meta.state=d.mode==='archive'?'archived':'discarded';record.meta.unread=false;delete record.body;break;
       }
       default:reply(res,404,{error:'Unknown API route'});return;
     }

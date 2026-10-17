@@ -7,7 +7,7 @@ const NODE='1111111111111111',PEER='2222222222222222',INCIDENT='3333333333333333
 const form={type:'net-form-8',sender:'W7ABC',recipient:'*',incident:INCIDENT,incidentName:'Test',sentAt:100,message:'Supplies needed',priority:0,subject:'Water'};
 function harness(){let saved={records:[],incidents:[],sequence:0,order:0},fail=false,clock=100000;const calls=[],pending=new Map();const status={node:NODE,incident:INCIDENT,incidentName:'Test',callsign:'N7XYZ',txEnabled:true,paused:false,radioReady:true,peers:[{id:PEER,callsign:'W7ABC',online:true,incident:INCIDENT}],pending:[],events:[]};
  const stores=new Map();const factory=node=>{if(!stores.has(node))stores.set(node,{async read(){return structuredClone(saved);},async write(s){calls.push(['save']);if(fail)throw Error('disk full');saved=structuredClone(s);}});return stores.get(node);};
- const rpc=async(op,data)=>{calls.push([op,structuredClone(data)]);if(op==='hello'||op==='status')return structuredClone(status);if(op==='pending')return structuredClone(pending.get(data.id));if(op==='commit'){assert(saved.records.some(r=>r.meta.id===data.id),'ACK must follow durable save');status.pending=status.pending.filter(id=>id!==data.id);}if(op==='reject')status.pending=status.pending.filter(id=>id!==data.id);if(op==='publish')return {queued:true};if(op==='eventsAck')status.events=status.events.filter(e=>e.seq>data.seq);return {saved:true};};
+ const rpc=async(op,data)=>{calls.push([op,structuredClone(data)]);if(op==='hello'||op==='status')return structuredClone(status);if(op==='leave'){status.incident='0000000000000000';status.incidentName='';status.pending=[];return structuredClone(status);}if(op==='pending')return structuredClone(pending.get(data.id));if(op==='commit'){assert(saved.records.some(r=>r.meta.id===data.id),'ACK must follow durable save');status.pending=status.pending.filter(id=>id!==data.id);}if(op==='reject')status.pending=status.pending.filter(id=>id!==data.id);if(op==='publish')return {queued:true};if(op==='eventsAck')status.events=status.events.filter(e=>e.seq>data.seq);return {saved:true};};
  const api=new NrfCompanionApi(rpc,{storeFactory:factory,now:()=>clock});return {api,status,calls,pending,get saved(){return saved;},fail:()=>fail=true,clock:value=>clock=value,incoming(body=form,chat=false,id=ID){const wire=JSON.stringify(body);pending.set(id,{id,incident:body.incident||INCIDENT,origin:PEER,hash:crc32(wire),priority:body.priority||0,chat,body:wire});status.pending.push(id);}};
 }
 test('received form is validated and durably saved before commit, then survives offline reopen',async()=>{const h=harness();h.incoming();await h.api.connect();assert(h.calls.findIndex(c=>c[0]==='save')<h.calls.findIndex(c=>c[0]==='commit'));assert.equal((await h.api.request('status')).unreadMessages,1);await h.api.request('read',{id:ID});assert.equal((await h.api.request('status')).unreadMessages,0);h.api.connected=false;assert.equal((await h.api.request('form?id='+ID)).body,JSON.stringify(form));assert.equal((await h.api.request('status')).companionConnected,false);});
@@ -36,7 +36,7 @@ test('form address fields appear in traffic metadata and survive offloading, inc
  list=await h.api.request('forms');assert.equal(list.forms[0].from,'Supply officer');
  assert.equal((await h.api.request('form?id='+ID)).meta.to,'Incident command');
  await h.api.request('offload',{id:ID,mode:'discard'});
- list=await h.api.request('forms');assert.equal(list.forms[0].from,'Supply officer');assert.equal(list.forms[0].to,'Incident command');
+ list=await h.api.request('forms?history=1');assert.equal(list.forms[0].from,'Supply officer');assert.equal(list.forms[0].to,'Incident command');
  assert.equal(h.saved.records[0].body,undefined);
 });
 
@@ -51,4 +51,46 @@ test('restoring an old ESP32 hello in companion storage does not crash on missin
  h.api.connected=false;await h.api.restore(NODE);
  assert.equal(h.api.status,null);
  await assert.rejects(h.api.request('status'),/Choose a radio connection/);
+});
+
+test('archiving or removing hides a form, clears unread, and retains its delivery record',async()=>{
+ const h=harness();h.incoming();await h.api.connect();
+ h.status.incident='4444444444444444';await h.api.request('status');
+ await h.api.request('offload',{id:ID,mode:'discard'});
+ assert.equal((await h.api.request('forms?all=1')).total,0);
+ assert.equal((await h.api.request('forms?all=1&history=1')).total,1);
+ assert.equal((await h.api.request('status')).unreadMessages,0);
+ assert.equal(h.api.state.records[0].body,undefined);
+ assert.equal(h.api.state.records[0].meta.state,'discarded');
+});
+test('leaving an incident preserves saved forms',async()=>{
+ const h=harness();h.incoming();await h.api.connect();await h.api.request('incident/leave',{});
+ assert.equal(h.api.status.incident,'0000000000000000');assert.equal(h.api.state.records.length,1);
+ assert.equal((await h.api.request('forms?all=1')).total,1);
+});
+test('removing an incident leaves it first and deletes only its records and saved entry',async()=>{
+ const h=harness();h.incoming();await h.api.connect();const other='4444444444444444';
+ await h.api.change(s=>{s.incidents=[{id:INCIDENT,name:'Test'},{id:other,name:'Other'}];s.records.push({...structuredClone(s.records[0]),meta:{...s.records[0].meta,id:'b'.repeat(32),incident:other}});});
+ await h.api.request('incident/remove',{id:INCIDENT});
+ assert.equal(h.api.status.incident,'0000000000000000');assert.equal(h.api.state.records.length,1);
+ assert.equal(h.api.state.records[0].meta.incident,other);assert.equal(h.api.state.incidents.length,1);
+ assert.equal(h.api.state.incidents[0].id,other);
+ await assert.rejects(h.api.request('incident/remove',{id:'../bad'}),/Valid incident/);
+});
+test('offline active incident removal is rejected before changing records',async()=>{
+ const h=harness();h.incoming();await h.api.connect();h.api.connected=false;
+ await assert.rejects(h.api.request('incident/remove',{id:INCIDENT}),/Connect the radio/);
+ assert.equal(h.api.state.records.length,1);
+});
+
+test('unsupported leave command preserves incident data and explains the firmware update',async()=>{
+ const h=harness();h.incoming();await h.api.connect();const rpc=h.api.rpc;
+ h.api.rpc=(op,data)=>op==='leave'?Promise.reject(new Error('Unknown operation')):rpc(op,data);
+ await assert.rejects(h.api.request('incident/remove',{id:INCIDENT}),/Update the radio firmware/);
+ assert.equal(h.api.status.incident,INCIDENT);assert.equal(h.api.state.records.length,1);
+});
+test('a failed incident cleanup save preserves the local forms',async()=>{
+ const h=harness();h.incoming();await h.api.connect();h.fail();
+ await assert.rejects(h.api.request('incident/remove',{id:INCIDENT}),/disk full/);
+ assert.equal(h.api.state.records.length,1);assert.equal(h.saved.records.length,1);
 });

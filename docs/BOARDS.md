@@ -167,7 +167,7 @@ If a release-event build fails, check the Actions log. No upload step runs until
 
 ## nRF52840 boards
 
-There are **nine separate nRF52840 targets** for RAK4631, WisMesh Tag, T-Echo, Heltec T114/T096, Seeed T1000-E, Wio Tracker L1, Solar Node, and the XIAO nRF52840 standalone Wio-SX1262 kit. They use Bluetooth or USB serial with the Android companion; message storage and the UI live in the app. See [nRF52 and Android setup](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) for exact variants, UF2 bootloader/SoftDevice requirements, and APK installation.
+There are **nine nRF52840 board families** for RAK4631, WisMesh Tag, T-Echo, Heltec T114/T096, Seeed T1000-E, Wio Tracker L1, Solar Node, and the XIAO nRF52840 standalone Wio-SX1262 kit. The RAK4631 has separate `rak4631` (S140 7.3.0) and `rak4631-s140-6-1-1` (stock S140 6.1.1) build profiles; choose the version shown in `INFO_UF2.TXT`. They use Bluetooth or USB serial with the Android companion; message storage and the UI live in the app. See [nRF52 and Android setup](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) for exact variants, UF2 bootloader/SoftDevice requirements, and APK installation.
 
 Build with `npm run build:nrf52` and `npm run build:android`. Outputs are `dist/form8-nrf52-firmware.zip` and `dist/form8-android-debug.apk`. nRF images are application-only UF2/HEX files, not ESP32 factory images. Hardware testing is still required.
 

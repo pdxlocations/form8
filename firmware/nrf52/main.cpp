@@ -7,6 +7,7 @@
 #include <RadioLib.h>
 #include <TinyGPSPlus.h>
 #include <Mesh.h>
+#include <NodeId.h>
 #include <TrafficSchedule.h>
 #include <Chat.h>
 #include "Pins.h"
@@ -29,7 +30,7 @@ struct Known {Id id;uint64_t incident;uint32_t hash;bool body,chat,human;};
 std::vector<Peer> peers; std::vector<Known> known; std::vector<Record> pending;
 struct Event {uint32_t seq;String json;}; std::vector<Event> events;uint32_t eventSeq=0;
 String inputLines[2],output[2];size_t outputAt[2]={0,0};bool overflow[2]={false,false};
-String hex64(uint64_t n){char b[17];snprintf(b,sizeof(b),"%016llx",(unsigned long long)n);return b;}
+String hex64(uint64_t n){const auto value=formatNodeId(n);return value.data();}
 String hexId(const Id& id){char b[33];for(size_t i=0;i<16;i++)snprintf(b+i*2,3,"%02x",id[i]);return b;}
 bool hexValid(const String& s,size_t n){if(s.length()!=n)return false;for(size_t i=0;i<s.length();i++)if(!isxdigit(s[i]))return false;return true;}
 uint64_t parse64(const String& s){return strtoull(s.c_str(),nullptr,16);}
@@ -115,6 +116,11 @@ void rpc(int transport,const String& line){JsonDocument in,out;if(deserializeJso
    JsonDocument before;before.set(config);String call=d["callsign"]|"";float primary=d["primary"],backup=d["backup"],bw=d["bandwidth"];int sf=d["sf"],cr=d["cr"],power=d["power"],interval=d["positionInterval"];
    if(!validPositionCall(call.c_str())||primary<850||primary>930||(backup!=0&&(backup<850||backup>930))||(d["useBackup"].as<bool>()&&backup==0)||(bw!=125 && bw!=250 && bw!=500)||sf<7||sf>12||cr<5||cr>8||power<2||power>22||interval<60||interval>86400)error="Invalid station settings";
    else{for(JsonPair p:d.as<JsonObject>())if(config[p.key()].is<bool>()||String(p.key().c_str())=="callsign"||String(p.key().c_str())=="primary"||String(p.key().c_str())=="backup"||String(p.key().c_str())=="bandwidth"||String(p.key().c_str())=="sf"||String(p.key().c_str())=="cr"||String(p.key().c_str())=="power"||String(p.key().c_str())=="positionInterval")config[p.key()]=p.value();if(!saveConfig()){config.set(before);error="Cannot save radio config";}else{initRadio();broadcasts.reset(millis());status(out);}}
+ }
+ else if(op=="leave"){
+   JsonDocument before;before.set(config);config["incident"]="0000000000000000";config["incidentName"]="";
+   if(!saveConfig()){config.set(before);error="Cannot save incident change";}
+   else{mesh->setIncident(0);pending.clear();humanRetries.clear();broadcasts.reset(millis());positionSchedule.reset(millis());status(out);}
  }
  else if(op=="incident"){String id=d["id"]|"",name=d["name"]|"";if(!hexValid(id,16)||!parse64(id)||!name.length()||name.length()>80)error="Invalid incident";else{JsonDocument before;before.set(config);config["incident"]=id;config["incidentName"]=name;if(!saveConfig()){config.set(before);error="Cannot save incident";}else{mesh->setIncident(incident());pending.clear();humanRetries.clear();broadcasts.reset(millis());positionSchedule.reset(millis());out["saved"]=true;}}}
  else if(op=="time"){uint32_t epoch=d["epoch"]|0;if(epoch<1577836800||epoch>4102444800UL)error="Invalid epoch";else{epochBase=epoch;epochAt=millis();out["saved"]=true;}}
