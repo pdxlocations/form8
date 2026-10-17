@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {crc32, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments} from '../web/model.js';
+import {crc32, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments, formDeliverySummary} from '../web/model.js';
 test('CRC matches the radio wire protocol, including UTF-8',()=>{
   assert.equal(crc32('123456789'),0xcbf43926);assert.equal(crc32('incident'),crc32(new TextEncoder().encode('incident')));
 });
@@ -46,4 +46,18 @@ test('manual acknowledgment list includes every station, including self and offl
   meta.receipts[0].callsign='NET-ORIGINAL';
   assert.equal(manualAcknowledgments(meta,[],'self','NET-RENAMED')[0],'NET-ORIGINAL');
   assert.deepEqual(manualAcknowledgments({receipts:[{id:'radio',human:false}]},[],'self','NET-A'),[]);
+});
+
+test('sent form summary switches from waiting to radio and human ACK callsigns',()=>{
+ const station={node:'self',callsign:'NET-A',txEnabled:true,peers:[]};
+ const meta={recipient:'*',expected:[{id:'b',callsign:'NET-B'},{id:'c',callsign:'NET-C'}],receipts:[{id:'self'}]};
+ assert.equal(formDeliverySummary(meta,station),'Awaiting radio ACK');
+ meta.receipts.push({id:'b'});
+ assert.equal(formDeliverySummary(meta,station),'Radio Ack: NET-B'); // Remaining stations do not hide the ACK.
+ meta.receipts[1].human=true;
+ assert.equal(formDeliverySummary(meta,station),'Radio Ack: NET-B · Human Ack: NET-B');
+ meta.receipts.push({id:'self',human:true},{id:'c',callsign:'NET-C',human:true});
+ assert.equal(formDeliverySummary(meta,station),'Radio Ack: NET-B, NET-C · Human Ack: NET-B, NET-A, NET-C');
+ assert.equal(formDeliverySummary({receipts:[]},{...station,paused:true}),'Transmission paused');
+ assert.equal(formDeliverySummary({receipts:[]},{...station,txEnabled:false}),'Transmission disabled');
 });

@@ -1,4 +1,4 @@
-import {availableReleases, validateTargets, verifyImage, installManifest} from './model.js';
+import {availableReleases, validateTargets, validateNrfTargets, verifyImage, installManifest} from './model.js';
 
 const $ = id => document.getElementById(id);
 let allReleases = [], releases = [], targets = [], loading = false, preparing = false, revision = 0;
@@ -7,11 +7,14 @@ const supported = window.isSecureContext && 'serial' in navigator;
 const api = (resource, values = {}) => `api.php?${new URLSearchParams({resource, ...values})}`;
 const selectedRelease = () => releases.find(release => String(release.id) === $('release').value);
 const selectedTarget = () => targets.find(target => target.environment === $('board').value);
-const factory = () => document.querySelector('input[name=mode]:checked').value === 'factory';
-const selectedImage = () => factory() ? selectedTarget()?.factory : selectedTarget();
+const nrf = () => selectedTarget()?.chipFamily === 'NRF52840';
+const factory = () => !nrf() && document.querySelector('input[name=mode]:checked').value === 'factory';
+const selectedImage = () => nrf() ? selectedTarget()?.[$('nrf-format').value] : factory() ? selectedTarget()?.factory : selectedTarget();
 function status(message, error = false) { $('status').textContent = message; $('status').classList.toggle('error', error); }
 function clearPrepared() {
   $('install-area').hidden = true;
+  $('download-area').hidden = true;
+  $('save-firmware').removeAttribute('href');
   $('install').removeAttribute('manifest');
   for (const url of [binaryURL, manifestURL]) if (url) URL.revokeObjectURL(url);
   binaryURL = manifestURL = undefined;
@@ -28,12 +31,18 @@ function updateControls() {
   $('refresh').disabled = loading || preparing;
   $('prereleases').disabled = loading || preparing;
   for (const input of document.querySelectorAll('input[name=mode], #confirm-board, #confirm-erase')) input.disabled = loading || preparing;
+  $('esp-mode').hidden = nrf();
+  $('nrf-help').hidden = !nrf();
+  $('nrf-format').disabled = loading || preparing;
+  $('prepare').textContent = nrf() ? 'Download & verify firmware file ↓' : 'Download & verify firmware ↓';
+  $('nrf-cable-note').hidden = target?.environment !== 'seeed-t1000-e';
   $('erase-confirmation').hidden = !factory();
   $('factory-note').hidden = !factory() || !target || !!target.factory;
-  $('prepare').disabled = !supported || loading || preparing || !selectedImage()
+  $('prepare').disabled = !(nrf() ? window.isSecureContext && !!globalThis.crypto?.subtle : supported) || loading || preparing || !selectedImage()
     || !$('confirm-board').checked || (factory() && !$('confirm-erase').checked);
-  $('prepare').hidden = !$('install-area').hidden;
-  if (target) $('board-info').textContent = `${target.chipFamily||"ESP32-S3"} · ${target.radio} · ${target.flashMiB} MB flash${target.experimental ? ' · EXPERIMENTAL target' : ''}. Check your physical board: USB cannot distinguish these board variants.`;
+  $('prepare').hidden = !$('install-area').hidden || !$('download-area').hidden;
+  if (nrf()) $('board-info').textContent = `nRF52840 · ${target.radio} · Experimental. Application only; requires the board’s bootloader and S140 7.3.0. No filesystem upload.`;
+  else if (target) $('board-info').textContent = `${target.chipFamily||"ESP32-S3"} · ${target.radio} · ${target.flashMiB} MB flash${target.experimental ? ' · EXPERIMENTAL target' : ''}. Check your physical board: USB cannot distinguish these board variants.`;
 }
 async function getJSON(url) {
   const response = await fetch(url, {cache: 'no-store'});
@@ -55,11 +64,21 @@ async function loadBoards() {
   $('release-link').href = `https://github.com/pdxlocations/form8/releases/tag/${encodeURIComponent(release.tag)}`;
   status('Loading board builds…');
   try {
-    const manifest = await getJSON(api('manifest', {release: release.id}));
+    const results = await Promise.allSettled([
+      release.assets.some(a => a.name === 'manifest.json')
+        ? getJSON(api('manifest', {release:release.id})).then(m => validateTargets(m, release)) : Promise.resolve([]),
+      release.assets.some(a => a.name === 'SHA256SUMS-NRF52') ? (async () => {
+        const [catalog, response] = await Promise.all([getJSON('nrf52-targets.json'), fetch(api('checksums', {release:release.id}), {cache:'no-store'})]);
+        if (!response.ok) throw new Error('Cannot load nRF release checksums. Refresh and try again.');
+        return validateNrfTargets(catalog, await response.text(), release);
+      })() : Promise.resolve([])
+    ]);
     if (revision !== current) return;
-    targets = validateTargets(manifest, release);
-    options($('board'), targets, target => `${target.board}${target.experimental ? ' — experimental' : ''}`, target => target.environment, 'No builds available');
-    status(`${targets.length} board builds available. Check your board, then download its firmware.`);
+    targets = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+    if (!targets.length) throw new Error(results.find(r => r.status === 'rejected')?.reason?.message || 'No complete board builds available yet.');
+    const failed = results.some(r => r.status === 'rejected');
+    options($('board'), targets, target => `${target.chipFamily || 'ESP32-S3'} · ${target.board}${target.experimental ? ' — experimental' : ''}`, target => target.environment, 'No builds available');
+    status(`${targets.length} board builds available. Check your board, then download its firmware.${failed ? ' Some builds could not be loaded; refresh to retry.' : ''}`, failed);
   } catch (error) {
     if (revision !== current) return;
     options($('board'), [], null, null, 'No builds available');
@@ -92,11 +111,11 @@ async function refresh() {
 $('refresh').addEventListener('click', refresh);
 $('release').addEventListener('change', loadBoards);
 $('prereleases').addEventListener('change', () => filterReleases($('release').value));
-for (const input of document.querySelectorAll('#board, input[name=mode], #confirm-board, #confirm-erase')) input.addEventListener('change', () => {
+for (const input of document.querySelectorAll('#board, #nrf-format, input[name=mode], #confirm-board, #confirm-erase')) input.addEventListener('change', () => {
   if (input.id === 'board') $('confirm-board').checked = $('confirm-erase').checked = false;
   if (input.name === 'mode') $('confirm-erase').checked = false;
   clearPrepared(); updateControls();
-  status(factory() ? 'First installation replaces saved data. Confirm your selection before continuing.' : 'Update selected. Leave “Erase device” unchecked in the installer.');
+  status(nrf() ? 'Download the matching UF2 or HEX, then follow the nRF installation instructions.' : factory() ? 'First installation replaces saved data. Confirm your selection before continuing.' : 'Update selected. Leave “Erase device” unchecked in the installer.');
 });
 $('prepare').addEventListener('click', async () => {
   const release = selectedRelease(), target = selectedTarget(), image = selectedImage();
@@ -108,6 +127,15 @@ $('prepare').addEventListener('click', async () => {
     if (!response.ok) { const error = await response.json(); throw new Error(error.error || 'Firmware download failed.'); }
     const buffer = await response.arrayBuffer();
     await verifyImage(buffer, image);
+    if (target.chipFamily === 'NRF52840') {
+      binaryURL = URL.createObjectURL(new Blob([buffer], {type:'application/octet-stream'}));
+      $('save-firmware').href = binaryURL;
+      $('save-firmware').download = image.file;
+      $('save-firmware').textContent = `Save ${image.file}`;
+      $('download-area').hidden = false;
+      status('Verified. Save the firmware file, then follow the nRF installation steps above.');
+      return;
+    }
     // Import after verification; the USB permission request remains a direct user click.
     await import('https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module');
     await customElements.whenDefined('esp-web-install-button');
@@ -123,7 +151,7 @@ window.addEventListener('pagehide', clearPrepared);
 if (!supported) {
   $('browser-note').hidden = false;
   $('browser-note').textContent = window.isSecureContext
-    ? 'USB flashing requires a browser with Web Serial. Use desktop Chrome or Edge and a USB data cable.'
+    ? 'nRF firmware downloads work in this browser. ESP32 USB flashing requires Web Serial. Use desktop Chrome or Edge and a USB data cable.'
     : 'Open this installer over HTTPS. USB access is blocked on an ordinary HTTP website.';
 }
 refresh();

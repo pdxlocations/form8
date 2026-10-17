@@ -40,10 +40,12 @@ The T1000-E magnetic cable normally does **not** expose a USB CDC data connectio
 
 This is an installable **development APK**, signed with a public development key checked into this project. It is not a production-signed or Play Store app. Development builds use the same key so installing an update can preserve app data. Do not use that public key for production signing. A production build needs a private signing key and its own release process. Android 6 / API 23 is the minimum; device verification remains necessary.
 
+For ESP32 Bluetooth with Wi-Fi handoff, use the [Bluetooth guide](https://github.com/pdxlocations/form8/wiki/Bluetooth). ESP32 keeps bodies on the node; the companion-owned storage behavior below applies to nRF52840.
+
 ## Connect over Bluetooth
 
 1. Turn on the radio and the phone's Bluetooth.
-2. In **Settings → Radio connection**, choose **Bluetooth (nRF52)**.
+2. In **Settings → Radio connection**, choose **Bluetooth (ESP32 / nRF52)**.
 3. Tap **Find radios** and allow **Nearby devices** permission. Android 11 and earlier also need location permission and Location enabled for BLE discovery.
 4. Select `Form8-xxxxxx`, then tap **Connect**. Pairing in Android's Bluetooth settings is not required.
 5. Wait for the connected board name and node ID. Set your callsign, matching frequency/modem settings, and **Enable radio transmission**, then save.
@@ -75,6 +77,12 @@ Radio metadata is bounded to **512 form/chat records per radio store**, includin
 
 Use **Map → Download area** while the phone has internet. Bluetooth/USB can stay connected while cellular or Wi-Fi supplies map tiles. Previously downloaded maps remain available offline. Archive and map exports open Android's **Save as** picker; choose a durable location. Imports use the existing file picker.
 
+## Build with pioarduino / PlatformIO
+
+All **21 environments** (12 ESP32 and nine nRF52840) appear in the main project. Open the repository folder containing `platformio.ini`. In the PlatformIO/pioarduino **Project Tasks** panel, refresh the task list, then expand a target such as **rak4631 → General → Build**. You can also select the target from the environment selector in the bottom status bar. If the list still shows only ESP32, use **Developer: Reload Window** in VS Code's Command Palette.
+
+For example, `pio run -e rak4631` and `pio run -e seeed-t1000-e` work from the project root. `config/nrf52.ini` supplies the nRF environments to the main project. The optional `platformio-nrf52.ini` wrapper remains available for nRF-only command-line builds; it is no longer necessary to select a different configuration to see the nRF targets in the IDE.
+
 ## Build it yourself
 
 ```sh
@@ -90,6 +98,10 @@ Outputs:
 - `dist/form8-nrf52-firmware.zip`: nine application-only UF2/HEX pairs and SHA-256 checksums.
 - `dist/form8-android-debug.apk` and `.apk.sha256`: installable development companion.
 
-The release workflow builds both alongside the ESP32 targets. The nRF source/configuration lives in `firmware/nrf52/`, `platformio-nrf52.ini`, and `config/nrf52-targets.json`. Android transport code lives in `android/app/src/main/java/org/form8/radio/`; RPC framing and storage/API adaptation live in `companion/radio-rpc.js` and `companion/nrf-api.js`.
+The release workflow builds both alongside the ESP32 targets. The nRF source/configuration lives in `firmware/nrf52/`, `config/nrf52.ini`, and `config/nrf52-targets.json`. Android transport code lives in `android/app/src/main/java/org/form8/radio/`; RPC framing and storage/API adaptation live in `companion/radio-rpc.js` and `companion/nrf-api.js`.
 
 Pin maps were checked against the [upstream board variants](https://github.com/meshtastic/firmware/tree/develop/variants/nrf52840); runtime uses Form8's own protocol, not Meshtastic. USB/BLE support uses [Adafruit's nRF52 Arduino core](https://github.com/adafruit/Adafruit_nRF52_Arduino) and the Nordic UART service.
+
+## Download from the web flasher
+
+Open [form8.pdxlocs.com](https://form8.pdxlocs.com), select your release and exact nRF board, choose UF2 or HEX, and download/verify/save the image. This also works in browsers without Web Serial. The site downloads nRF files; install them using the bootloader/programmer instructions above. See [Web Flasher](Web-Flasher) for the full steps.

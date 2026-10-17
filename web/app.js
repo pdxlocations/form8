@@ -1,7 +1,7 @@
 import {UnreadTracker,setNavBadge} from './unread.js';
 import {createMapPanel} from './map.js';
 import {PositionClient,deviceLocation,locationPayload} from './position-client.js';
-import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
+import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, formDeliverySummary, manualAcknowledgments, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
 const $ = selector => document.querySelector(selector);
 let status = null, offset = 0, total = 0, draftTimer, locationData = null, settingsLoaded = false, boundIncident = '';
 let messageNeighbors = {previous:null,next:null};
@@ -71,7 +71,12 @@ async function api(path, body) {
   if (!response.ok) throw new Error(result.error || 'Radio request failed');
   return result;
 }
-function feedback(message, error = false) { const e=$('#feedback');e.hidden=false;e.textContent=message;e.classList.toggle('error',error); }
+function feedback(message, error = false) { const e=$('#feedback');delete e.dataset.form;e.hidden=false;e.textContent=message;e.classList.toggle('error',error); }
+function refreshFormFeedback(meta) {
+  const e=$('#feedback');
+  if(e.dataset.form!==`${status?.node}/${meta.id}`)return;
+  e.textContent=`Form ${meta.id.slice(-8)} saved to ${status.companionStorage?'companion':'radio'} · ${formDeliverySummary(meta,status)}.`;
+}
 function run(fn) { return async event => { try { await fn(event); } catch(error) { feedback(error.message, true); } }; }
 function text(tag, value, className) { const el=document.createElement(tag);el.textContent=value;if(className)el.className=className;return el; }
 function button(label, fn, className='secondary') { const b=text('button',label,className);b.type='button';b.onclick=run(fn);return b; }
@@ -148,7 +153,7 @@ form.onsubmit=run(async event=>{
   d.boundIncident=status.incident;await db('drafts','put',{id:d.clientToken,form:d,savedAt:Date.now()});
   boundIncident=d.boundIncident;
   const result=await api('forms',d);await db('drafts','delete',d.clientToken);fill();await saveDraft();
-  feedback(`Form ${result.id.slice(-8)} saved to ${status.companionStorage?'companion':'radio'}${status.paused?' · transmission paused':!status.txEnabled?' · transmission disabled': ' · awaiting radio ACK'}.`);showTab('traffic');await openForm(result.id);await poll();
+  feedback(`Form ${result.id.slice(-8)} saved to ${status.companionStorage?'companion':'radio'}${status.paused?' · transmission paused':!status.txEnabled?' · transmission disabled': ' · awaiting radio ACK'}.`);$('#feedback').dataset.form=`${status.node}/${result.id}`;showTab('traffic');await openForm(result.id);await poll();
 });
 $('#phone-location').onclick=run(async()=>{
   const button=$('#phone-location'),label=button.textContent;
@@ -217,25 +222,21 @@ function captureChatScroll(){
   const writing=composer.contains(document.activeElement);
   const top=$('.chat-toolbar').getBoundingClientRect().bottom;
   return {writing,composerTop:composer.getBoundingClientRect().top,scrollY:window.scrollY,
-    atEnd:list.getBoundingClientRect().bottom<=window.innerHeight+80,
-    last:list.lastElementChild?.dataset.message,
+    atStart:!list.firstElementChild || list.firstElementChild.getBoundingClientRect().top>=top-40,
     anchors:[...list.querySelectorAll('[data-message]')].map(message=>({id:message.dataset.message,rect:message.getBoundingClientRect()}))
       .filter(anchor=>anchor.rect.bottom>top && anchor.rect.top<window.innerHeight)};
 }
 function restoreChatScroll(saved){
   const list=$('#chat-list');
   if(saved.writing){window.scrollBy(0,$('#chat-form').getBoundingClientRect().top-saved.composerTop);return;}
-  if(saved.last && saved.last!==list.lastElementChild?.dataset.message && saved.atEnd){
-    list.lastElementChild?.scrollIntoView({block:'end'});return;
-  }
+  if(saved.atStart){window.scrollTo(0,saved.scrollY);return;}
   for(const anchor of saved.anchors){
     const message=[...list.children].find(element=>element.dataset.message===anchor.id);
     if(message){window.scrollBy(0,message.getBoundingClientRect().top-anchor.rect.top);return;}
   }
   window.scrollTo(0,saved.scrollY);
 }
-$('#chat-latest').onclick=()=>$('#chat-list').lastElementChild?.scrollIntoView({block:'end',behavior:'smooth'});
-$('#chat-write').onclick=()=>{$('#chat-text').focus({preventScroll:true});$('#chat-form').scrollIntoView({block:'start',behavior:'smooth'});};
+$('#chat-oldest').onclick=()=>$('#chat-list').lastElementChild?.scrollIntoView({block:'end',behavior:'smooth'});
 let chatLoading=null;
 function loadChatMessages(){
   if(chatLoading)return chatLoading;
@@ -259,7 +260,7 @@ async function refreshChatMessages(){
   const list=$('#chat-list'),savedScroll=captureChatScroll();
   const opened=new Set([...list.querySelectorAll('details[open]')].map(detail=>detail.dataset.message));
   list.replaceChildren();
-  for(const message of result.messages){
+  for(const message of [...result.messages].reverse()){
     const item=text('article','',`chat-message${message.origin===status.node?' chat-own':''}`);item.dataset.message=message.id;
     const heading=text('div','','chat-heading'),date=new Date(message.sentAt*1000);
     heading.append(text('strong',message.sender),text('span',message.sentAt>=1577836800?date.toLocaleString():'Time not synchronized','muted'));item.append(heading);
@@ -351,6 +352,11 @@ async function refreshScreen() {
     }
     renderNearbyIncidents();
     const updates=[];
+    const tracked=$('#feedback').dataset.form;
+    if(tracked?.startsWith(`${next.node}/`)){
+      const id=tracked.slice(next.node.length+1);
+      if(selectedForm!==id || $('#traffic').hidden)updates.push(api(`form?id=${id}`).then(record=>refreshFormFeedback(record.meta)));
+    }
     if(!$('#traffic').hidden){
       updates.push(loadTraffic());
       if(selectedForm){const id=selectedForm;updates.push(api(`form?id=${id}`).then(record=>{if(selectedForm===id)renderForm(record);}));}
@@ -364,22 +370,19 @@ async function refreshScreen() {
 }
 function deliveryIndicator(m) {
   const delivery=deliveryStatus(m,status?.peers||[],status?.node);
-  const block=text('div','','delivery '+(delivery.complete?'acked':'pending'));
+  const block=text('div','','delivery '+(delivery.radio.length?'acked':'pending'));
   block.append(text('strong',delivery.label));
   if(delivery.pending.length)block.append(text('p',`Pending: ${delivery.pending.join(', ')}`));
-  else if(!delivery.complete)block.append(text('p','No remote station has acknowledged yet.'));
+  else if(!delivery.radio.length)block.append(text('p','No remote station has acknowledged yet.'));
   return block;
 }
 function renderReceipts(m) {
   const container=$('#delivery-detail');if(!container)return;
   container.replaceChildren(deliveryIndicator(m));
   const acknowledged=manualAcknowledgments(m,status?.peers||[],status?.node,status?.callsign);
-  container.append(text('h3','Manually acknowledged by'));
-  if(acknowledged.length){
-    const list=text('ul','','manual-ack-list');
-    for(const callsign of acknowledged)list.append(text('li',callsign));
-    container.append(list);
-  }else container.append(text('p','No manual acknowledgments yet.','muted'));
+  const human=text('div','',`delivery ${acknowledged.length?'acked':'pending'}`);
+  human.append(text('strong',`Human Ack: ${acknowledged.length?acknowledged.join(', '):'None yet'}`));
+  container.append(human);
   const table=document.createElement('table'),head=document.createElement('tr');for(const title of ['Station','Receipt'])head.append(text('th',title));table.append(head);
   for(const r of receiptRows(m,status?.peers||[],status?.node)){const tr=document.createElement('tr');tr.append(text('td',r.callsign),text('td',r.status));table.append(tr);}
   container.append(table);
@@ -396,7 +399,7 @@ async function loadTraffic() {
     const heading=text('div','','traffic-subject');
     heading.append(text('span',priorities[m.priority],'badge'+(m.priority===3?' urgent':'')),text('strong',m.subject||'(No subject)'));
     if(m.unread)heading.append(text('span','Unread','badge'));
-    description.append(heading,text('p',`${m.sender} → ${m.recipient==='*'?'Broadcast':m.recipient} · ${m.state}`));
+    description.append(heading,text('p',`From: ${m.from||'—'} · To: ${m.to||'—'}`,'traffic-addresses'),text('p',`${m.sender} → ${m.recipient==='*'?'Broadcast':m.recipient} · ${m.state}`));
     const delivery=deliveryStatus(m,status?.peers||[],status?.node),receipt=text('span',delivery.complete?'Radio ACK':'Pending ACK','traffic-receipt'+(delivery.complete?' acked':''));receipt.title=delivery.label;
     row.append(description,receipt,button('Open',()=>openForm(m.id)));list.append(row);
   }
@@ -414,6 +417,7 @@ async function openForm(id) {
   await poll();
 }
 function renderForm(record) {
+  refreshFormFeedback(record.meta);
   setTrafficView();
   const signature=JSON.stringify(record);
   if(signature===displayedRecord){renderReceipts(record.meta);return;}
@@ -422,7 +426,7 @@ function renderForm(record) {
   detail.append(text('h3',m.subject||'General message'),text('p',`ID ${m.id} · ${m.state}`,'muted'));
   if(record.body){
     const d=JSON.parse(record.body);
-    detail.append(text('p',`${d.from||d.sender} → ${d.to||d.recipient} · ${d.date||''} ${d.time||''}`),text('pre',d.message,'message'));
+    detail.append(text('p',`From: ${d.from||d.sender} · To: ${d.to||d.recipient} · ${d.date||''} ${d.time||''}`),text('pre',d.message,'message'));
     if(d.location)detail.append(text('p',`${d.location.lat}, ${d.location.lon} · ${d.location.source} · fix age ${d.location.fixAgeMs||0} ms`,'muted'));
     if(d.parent)detail.append(text('p',`Reply/correction linked to ${d.parent}`,'muted'));
     const actions=text('div','','actions');

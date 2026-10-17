@@ -4,6 +4,7 @@
 #include <BoardConfig.h>
 
 struct StationScreen {
+  bool bluetooth=false;
   String callsign,incident,radioState;
   size_t online=0;
   float frequency=0;
@@ -49,7 +50,7 @@ inline void drawCounter(SSD1306Wire& d,int x,size_t count) {
 inline void showStationStatus(const String& ssid,const String& password,uint8_t clients,size_t outgoing,size_t unread,const String& sender,const StationScreen& station={}) {
   if(!displayReady())return;
   static String previous;
-  String state=ssid+"|"+password+"|"+String(clients)+"|"+String(outgoing)+"|"+String(unread)+"|"+sender+"|"+station.callsign+"|"+station.incident+"|"+station.radioState+"|"+String(station.online)+"|"+String(station.frequency,3)+"|"+String(station.batteryMv/10);
+  String state=ssid+"|"+password+"|"+String(clients)+"|"+String(outgoing)+"|"+String(unread)+"|"+sender+"|"+station.callsign+"|"+station.incident+"|"+station.radioState+"|"+String(station.online)+"|"+String(station.frequency,3)+"|"+String(station.batteryMv/10)+"|"+String(station.bluetooth);
   if(state==previous)return;previous=state;
   auto& display=stationDisplay();
   display.clear();display.setTextAlignment(TEXT_ALIGN_LEFT);display.setFont(ArialMT_Plain_10);
@@ -62,7 +63,7 @@ inline void showStationStatus(const String& ssid,const String& password,uint8_t 
     display.setFont(ArialMT_Plain_10);
     display.drawString(0,39,displayFit(display,station.radioState,78));
     display.drawString(84,39,station.batteryMv?String(station.batteryMv/1000.0f,2)+"V":"--V");
-    display.drawString(0,51,displayFit(display,unread?"From: "+sender:String(station.frequency,3)+" MHz  WiFi:"+String(clients)));
+    display.drawString(0,51,displayFit(display,unread?"From: "+sender:String(station.frequency,3)+" MHz "+(station.bluetooth?"BT":"WiFi:"+String(clients))));
   }else{
     display.drawString(0,12,"AP password:");
     if(station.radioState=="RXING")display.drawString(92,12,"RXING");

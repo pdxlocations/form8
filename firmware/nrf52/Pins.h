@@ -65,8 +65,7 @@
 #define NRF_GPS_EN 6
 #define NRF_GPS_EN_LEVEL 0
 #define NRF_GPS_BAUD 115200
-#define NRF_BAT_EN 4
-#define NRF_BAT_EN_LEVEL 17
+#define NRF_BAT_EN 47
 #define NRF_BAT_EN_LEVEL 1
 #define NRF_GPS_RESET 46
 #define NRF_BATTERY 3

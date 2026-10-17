@@ -79,10 +79,10 @@ void chatTransmitted(const Frame& f,uint32_t now){
   if(attempts){JsonDocument m;if(readJson(chatPath(f.id),m)){m["attempts"]=attempts;if(writeJson(chatPath(f.id),m))++chatRevision;}}
 }
 void chatApi(){
-  server.on("/api/chat",HTTP_GET,[]{
+  apiOn("/api/chat",HTTP_GET,[]{
     JsonDocument out;out["incident"]=hex64(active);
     const String version=String(bootSession,HEX)+"-"+String(chatRevision);out["version"]=version;
-    if(server.arg("since")==version){out["unchanged"]=true;respond(200,out);return;}
+    if(apiArg("since")==version){out["unchanged"]=true;respond(200,out);return;}
     JsonArray messages=out["messages"].to<JsonArray>();auto records=chatIds();
     // Only keep the newest 30 text messages in this HTTP response.
     std::vector<Id> texts;
@@ -110,7 +110,7 @@ void chatApi(){
       }
     }respond(200,out);
   });
-  server.on("/api/chat",HTTP_POST,[]{
+  apiOn("/api/chat",HTTP_POST,[]{
     JsonDocument inputDoc;if(!input(inputDoc))return;
     if(!fsReady || !active || !validCall(callsign)){error(409,"Set callsign and join an incident first");return;}
     if(String(inputDoc["incident"]|"")!=hex64(active)){error(409,"Chat belongs to another incident; review it before sending");return;}

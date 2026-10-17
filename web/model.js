@@ -116,3 +116,12 @@ export function verifyArchive(record) {
   return record;
 }
 
+
+export function formDeliverySummary(meta, station) {
+  const radio=deliveryStatus(meta,station.peers||[],station.node).radio;
+  const human=manualAcknowledgments(meta,station.peers||[],station.node,station.callsign);
+  const parts=[];
+  if(radio.length)parts.push(`Radio Ack: ${radio.join(', ')}`);
+  if(human.length)parts.push(`Human Ack: ${human.join(', ')}`);
+  return parts.join(' · ') || (station.paused?'Transmission paused':!station.txEnabled?'Transmission disabled':'Awaiting radio ACK');
+}

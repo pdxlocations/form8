@@ -1,5 +1,7 @@
 # Connect your phone or laptop
 
+**Android Bluetooth:** ESP32 can also use [paired Bluetooth with automatic Wi-Fi handoff](https://github.com/pdxlocations/form8/wiki/Bluetooth). nRF52840 uses [Bluetooth or USB serial with the companion](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android). The Wi-Fi instructions below apply to ESP32.
+
 The workspace uses seven icon buttons that fit across a phone screen: **pencil = Compose**, **envelope = Traffic**, **speech bubble = Chat**, **flag = Incidents**, **folded map = Map**, **archive box = Device archive**, and **gear = Radio setup**. On a computer, hover over an icon to see its name. Screen readers announce each button's name.
 
 1. Power on the radio.

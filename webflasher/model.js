@@ -1,6 +1,6 @@
 export function availableReleases(releases, includePrereleases = false) {
   return releases.filter(release => !release.prerelease || includePrereleases)
-    .filter(release => release.assets.some(asset => asset.name === 'manifest.json'))
+    .filter(release => release.assets.some(asset => asset.name === 'manifest.json') || (release.assets.some(asset => asset.name === 'SHA256SUMS-NRF52') && release.assets.some(asset => /^form8-[a-z0-9-]+\.uf2$/.test(asset.name))))
     .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
 }
 
@@ -38,4 +38,25 @@ export function installManifest(target, image, version, binaryURL) {
   return {name: `Form8 · ${target.board}`, version, new_install_prompt_erase: true,
     new_install_improv_wait_time: 0,
     builds: [{chipFamily, parts: [{path: binaryURL, offset: Number(image.flashOffset)}]}]};
+}
+
+// Existing nRF releases already publish these hashes; no new release format needed.
+export function validateNrfTargets(catalog, checksums, release) {
+  if (!Array.isArray(catalog) || typeof checksums !== 'string') throw new Error('Invalid nRF board data.');
+  const hashes = new Map();
+  for (const line of checksums.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const match = /^([a-f0-9]{64})  (form8-[a-z0-9-]+\.(?:uf2|hex))$/.exec(line);
+    if (!match || hashes.has(match[2])) throw new Error('Invalid nRF release checksums.');
+    hashes.set(match[2], match[1]);
+  }
+  const image = (environment, format) => {
+    const file = `form8-${environment}.${format}`;
+    const asset = release.assets.find(a => a.name === file);
+    return asset && hashes.has(file) && Number.isSafeInteger(asset.bytes) && asset.bytes > 0 && asset.bytes <= 8*1024*1024
+      ? {file, bytes:asset.bytes, sha256:hashes.get(file)} : null;
+  };
+  return catalog.filter(t => /^[a-z0-9-]+$/.test(t.environment) && typeof t.board === 'string')
+    .map(t => ({...t, chipFamily:'NRF52840', experimental:true, uf2:image(t.environment,'uf2'), hex:image(t.environment,'hex')}))
+    .filter(t => t.uf2);
 }

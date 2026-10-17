@@ -4,6 +4,8 @@
 #include <Preferences.h>
 #include <SPI.h>
 #include <WebServer.h>
+#include <ApiGateway.h>
+#include <EspBleBridge.h>
 #include <WiFi.h>
 #include <Mesh.h>
 #include <RecordName.h>
@@ -21,6 +23,10 @@
 
 using namespace form8;
 WebServer server(80);
+ApiGateway apiGateway(server);
+EspBleBridge bluetooth;
+bool wifiSuspended=false;
+String bluetoothName;
 Preferences prefs;
 uint64_t nodeId;
 uint32_t bootSession=0;
@@ -158,12 +164,19 @@ bool persistRecord(const Record& r) {
   JsonDocument m;m["id"]=hexId(r.id);m["incident"]=hex64(r.incident);m["origin"]=hex64(r.origin);
   m["hash"]=r.hash;m["priority"]=r.priority;m["state"]="stored";m["recipient"]=body["recipient"];
   m["subject"]=body["subject"];m["sender"]=body["sender"];
+  m["from"]=body["from"]|"";m["to"]=body["to"]|"";
   if(r.origin!=nodeId){m["unread"]=true;m["receivedOrder"]=++receivedSequence;prefs.putULong("rxSequence",receivedSequence);}
   JsonArray expected=m["expected"].to<JsonArray>();
   for(const auto& p:peers)if(p.incident==active){JsonObject e=expected.add<JsonObject>();e["id"]=hex64(p.id);e["callsign"]=p.call;}
   JsonArray receipts=m["receipts"].to<JsonArray>();JsonObject own=receipts.add<JsonObject>();own["id"]=hex64(nodeId);own["human"]=false;
   persistError="Cannot write form metadata to radio storage; check USB serial logs";
   if(!writeJson(path(r.id,".meta"),m)){LittleFS.remove(path(r.id,".body"));return false;}stationDirty=true;return true;
+}
+// Older records can recover form addresses while their body is retained.
+void formAddresses(JsonDocument& meta,const Id& id) {
+  if(meta["from"].is<const char*>() && meta["to"].is<const char*>())return;
+  JsonDocument body;if(!readJson(path(id,".body"),body))return;
+  meta["from"]=body["from"]|"";meta["to"]=body["to"]|"";
 }
 bool recordReceipt(const Id& id,uint64_t peer,uint32_t hash,bool human) {
   JsonDocument m;if(!readJson(path(id,".meta"),m) || m["hash"].as<uint32_t>()!=hash || parse64(m["incident"]|"")!=active)return false;
@@ -253,11 +266,11 @@ void positionJson(JsonObject out,const PositionFix& fix) {
   out["lat"]=fix.lat;out["lon"]=fix.lon;out["source"]=fix.radio?"radio":"phone";
   out["accuracy"]=fix.accuracy;out["ageMs"]=fix.ageMs(millis());out["fresh"]=fix.fresh(millis());
 }
-void respond(int code,const JsonDocument& d) { String s;serializeJson(d,s);server.send(code,"application/json",s); }
-void error(int code,const char* s) { JsonDocument d;d["error"]=s;respond(code,d); }
-bool input(JsonDocument& d) {
-  if(server.arg("plain").length()>8192 || deserializeJson(d,server.arg("plain"))){error(400,"Invalid or oversized JSON");return false;}return true;
-}
+void apiOn(const char* route,HTTPMethod method,std::function<void()> handler){apiGateway.on(route,method,handler);}
+String apiArg(const String& name){return apiGateway.arg(name);}
+void respond(int code,const JsonDocument& d){apiGateway.respond(code,d);}
+void error(int code,const char* message){apiGateway.error(code,message);}
+bool input(JsonDocument& d){return apiGateway.input(d);}
 #include <ChatStore.h>
 void IRAM_ATTR radioIRQ() { radioFlag=true; }
 void initRadio() {
@@ -278,14 +291,14 @@ void saveConfig() {
 }
 void api() {
   chatApi();
-  server.on("/api/status",HTTP_GET,[]{
+  apiOn("/api/status",HTTP_GET,[]{
     refreshStationCounts();
     JsonDocument d;
     d["batteryMillivolts"]=batteryReading().millivolts;d["board"]=BOARD_NAME;d["powerNote"]=BOARD_POWER_NOTE;d["node"]=hex64(nodeId);d["bootSession"]=bootSession;d["callsign"]=callsign;
     d["incident"]=hex64(active);d["incidentName"]=activeName;d["paused"]=paused;d["txEnabled"]=txEnabled;
     d["radioReady"]=radioReady;d["radioError"]=radioError;d["queue"]=mesh->pending(false);d["dropped"]=mesh->dropped;
     d["rxPackets"]=rxPackets;d["rxFrames"]=rxFrames;d["rxErrors"]=rxErrors;d["txFrames"]=txFrames;d["lastRxError"]=lastRxError;
-    d["outgoingMessages"]=outgoingMessages;d["unreadMessages"]=unreadMessages;d["newestSender"]=newestSender;d["connectedClients"]=WiFi.softAPgetStationNum();
+    d["outgoingMessages"]=outgoingMessages;d["unreadMessages"]=unreadMessages;d["newestSender"]=newestSender;d["connectedClients"]=bluetooth.isConnected()?1:WiFi.softAPgetStationNum();d["bluetoothAvailable"]=bluetooth.available;d["bluetoothConnected"]=bluetooth.isConnected();d["bluetoothName"]=bluetoothName;d["wifiEnabled"]=!wifiSuspended;d["clientTransport"]=apiGateway.bluetoothRequest()?"bluetooth":"wifi";
     d["clockSource"]=clockSource;d["freeHeap"]=ESP.getFreeHeap();d["fsReady"]=fsReady;
     d["storageUsed"]=fsReady?LittleFS.usedBytes():0;d["storageTotal"]=fsReady?LittleFS.totalBytes():0;
     d["storageWarning"]=!fsReady || LittleFS.totalBytes()-LittleFS.usedBytes()<STORAGE_RESERVE+512*1024 || allIds(false).size()>460;
@@ -297,7 +310,7 @@ void api() {
     for(const auto& p:peers){JsonObject o=a.add<JsonObject>();o["id"]=hex64(p.id);o["callsign"]=p.call;o["incident"]=hex64(p.incident);o["name"]=p.name;o["online"]=uint32_t(millis()-p.last)<PEER_ONLINE_MS;if(p.position.valid && p.position.ageMs(millis())<=POSITION_RETAIN_MS)positionJson(o["location"].to<JsonObject>(),p.position);}
     respond(200,d);
   });
-  server.on("/api/config",HTTP_POST,[]{
+  apiOn("/api/config",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;
     String call=d["callsign"]|callsign;call.toUpperCase();
     float freq=d["primary"]|primary,bak=d["backup"]|backup,bw=d["bandwidth"]|bandwidth;
@@ -321,7 +334,7 @@ void api() {
     txEnabled=d["txEnabled"]|txEnabled;paused=d["paused"]|paused;saveConfig();radio.standby();initRadio();
     JsonDocument out;out["saved"]=true;out["radioReady"]=radioReady;respond(200,out);
   });
-  server.on("/api/position",HTTP_POST,[]{
+  apiOn("/api/position",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;
     if(!d["lat"].is<double>() || !d["lon"].is<double>() || !d["ageMs"].is<uint32_t>()){error(400,"Coordinates and fix age required");return;}
     double lat=d["lat"],lon=d["lon"];uint32_t age=d["ageMs"];
@@ -334,7 +347,7 @@ void api() {
     phoneFix={lat,lon,accuracy,false,true,millis(),age};
     JsonDocument out;out["saved"]=true;respond(200,out);
   });
-  server.on("/api/incident",HTTP_POST,[]{
+  apiOn("/api/incident",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;String name=d["name"]|"",id=d["id"]|"";
     if(name.isEmpty()||name.length()>64||(id.length()&&!parseHex(id,16))){error(400,"Incident name and valid ID required");return;}
     uint64_t next=id.length()?parse64(id):(uint64_t(esp_random())<<32)|esp_random();
@@ -345,20 +358,20 @@ void api() {
     active=next;activeName=name;mesh->setIncident(active);retries.clear();humanAckRetries.clear();chatRetries.clear();broadcasts.reset(millis());positionSchedule.reset(millis());stationDirty=true;saveConfig();inventoryCursor=0;
     JsonDocument out;out["id"]=hex64(active);respond(200,out);
   });
-  server.on("/api/incidents",HTTP_GET,[]{
+  apiOn("/api/incidents",HTTP_GET,[]{
     JsonDocument d;JsonArray a=d["incidents"].to<JsonArray>();File dir=LittleFS.open("/incidents");File f=dir.openNextFile();
     while(f){JsonDocument e;if(!deserializeJson(e,f))a.add(e.as<JsonVariantConst>());f.close();f=dir.openNextFile();}respond(200,d);
   });
-  server.on("/api/time",HTTP_POST,[]{
+  apiOn("/api/time",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;int64_t epoch=d["epoch"]|int64_t(0);
     if(epoch<1577836800LL||epoch>4102444800LL){error(400,"Invalid time");return;}
     timeval tv{static_cast<time_t>(epoch),0};settimeofday(&tv,nullptr);clockSource="phone/laptop";
     JsonDocument out;out["saved"]=true;respond(200,out);
   });
-  server.on("/api/forms",HTTP_GET,[]{
-    JsonDocument d;JsonArray a=d["forms"].to<JsonArray>();bool archives=server.arg("all")=="1";
-    auto ids=allIds(!archives);size_t offset=server.arg("offset").toInt();
-    String selected=server.arg("selected");
+  apiOn("/api/forms",HTTP_GET,[]{
+    JsonDocument d;JsonArray a=d["forms"].to<JsonArray>();bool archives=apiArg("all")=="1";
+    auto ids=allIds(!archives);size_t offset=apiArg("offset").toInt();
+    String selected=apiArg("selected");
     if(parseHex(selected,32)) {
       auto found=std::find(ids.begin(),ids.end(),parseId(selected));
       if(found!=ids.end()) {
@@ -368,15 +381,15 @@ void api() {
       }
     }
     size_t end=std::min(ids.size(),offset+20);
-    for(size_t i=offset;i<end;++i){JsonDocument m;if(readJson(path(ids[i],".meta"),m))a.add(m.as<JsonVariantConst>());}
+    for(size_t i=offset;i<end;++i){JsonDocument m;if(readJson(path(ids[i],".meta"),m)){formAddresses(m,ids[i]);a.add(m.as<JsonVariantConst>());}}
     d["total"]=ids.size();d["offset"]=offset;respond(200,d);
   });
-  server.on("/api/form",HTTP_GET,[]{
-    String s=server.arg("id");if(!parseHex(s,32)){error(400,"Invalid form ID");return;}Id id=parseId(s);
+  apiOn("/api/form",HTTP_GET,[]{
+    String s=apiArg("id");if(!parseHex(s,32)){error(400,"Invalid form ID");return;}Id id=parseId(s);
     JsonDocument d,m;if(!readJson(path(id,".meta"),m)){error(404,"Form not found");return;}
-    d["meta"]=m;Record r;if(loadRecord(id,r))d["body"]=r.body;respond(200,d);
+    formAddresses(m,id);d["meta"]=m;Record r;if(loadRecord(id,r))d["body"]=r.body;respond(200,d);
   });
-  server.on("/api/forms",HTTP_POST,[]{
+  apiOn("/api/forms",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;if(!fsReady||!active||!validCall(callsign)){error(409,"Set callsign and join an incident first");return;}
     if(!d["boundIncident"].isNull() && String(d["boundIncident"]|"")!=hex64(active)){error(409,"Draft belongs to another incident");return;}
     String token=d["clientToken"]|"";
@@ -396,23 +409,24 @@ void api() {
     if(!persistRecord(r)){Serial.printf("Form save failed: %s\n",persistError);error(507,persistError);return;}
     bool queued=mesh->publish(r);if(queued)retries.queued(id);JsonDocument out;out["id"]=hexId(id);out["queued"]=queued;out["saved"]=true;respond(201,out);
   });
-  server.on("/api/ack",HTTP_POST,[]{
+  apiOn("/api/ack",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;String s=d["id"]|"";Id id=parseId(s);Record r;
     if(!parseHex(s,32)||!loadRecord(id,r)||r.incident!=active){error(404,"Active stored form required");return;}
     if(!recordReceipt(id,nodeId,r.hash,true)){error(507,"Cannot save acknowledgment");return;}
     const uint32_t now=millis();humanAckRetries.begin(id,r.hash,now,mesh->acknowledge(id,r.hash,true,now));JsonDocument out;out["saved"]=true;respond(200,out);
   });
-  server.on("/api/read",HTTP_POST,[]{
+  apiOn("/api/read",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;String id=d["id"]|"";
     if(!parseHex(id,32)||!LittleFS.exists(path(parseId(id),".meta"))){error(404,"Form not found");return;}
     if(!markRead(parseId(id))){error(507,"Cannot save read status");return;}
     JsonDocument out;out["saved"]=true;respond(200,out);
   });
-  server.on("/api/offload",HTTP_POST,[]{
+  apiOn("/api/offload",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;String s=d["id"]|"",mode=d["mode"]|"";
     if(!parseHex(s,32)||(mode!="archive"&&mode!="discard")){error(400,"Invalid offload request");return;}
     Id id=parseId(s);JsonDocument m;if(!readJson(path(id,".meta"),m)){error(404,"Unknown form");return;}
     if(mode=="archive" && (!d["verified"].as<bool>() || d["hash"].as<uint32_t>()!=m["hash"].as<uint32_t>())){error(409,"Verified client archive required");return;}
+    formAddresses(m,id);
     m["state"]=mode=="archive"?"archived":"discarded";
     if(!writeJson(path(id,".meta"),m)){error(507,"Cannot save offload record");return;}
     LittleFS.remove(path(id,".body"));
@@ -497,6 +511,8 @@ void setup() {
     for(const auto& asset:WEB_ASSETS)if(uri==asset.path){server.sendHeader("Cache-Control","no-cache");server.send_P(200,asset.mime,asset.body);return;}
     error(404,"Not found");
   });server.begin();
+  bluetoothName="Form8-"+ssid.substring(6);
+  if(!bluetooth.begin(bluetoothName,strtoul(password.substring(password.length()-6).c_str(),nullptr,10)))Serial.println("Bluetooth initialization failed; Wi-Fi remains available.");
 }
 void serialConsole() {
   // Headless boards need a way to retrieve credentials after startup output.
@@ -511,9 +527,27 @@ void serialConsole() {
     else overflow=true;
   }
 }
+String bluetoothRequest(const String& line){
+  JsonDocument in,out;if(deserializeJson(in,line))return "";
+  int request=in["request"]|0;out["request"]=request;
+  if(!parseHex(in["client"]|"",32))out["error"]="Invalid companion identity";
+  else if(String(in["op"]|"")=="hello"){
+    JsonObject data=out["data"].to<JsonObject>();data["protocol"]="form8-api-v1";data["storage"]="radio";data["node"]=hex64(nodeId);data["board"]=BOARD_NAME;data["wifiPolicy"]="handoff";
+  }else if(String(in["op"]|"")=="http")return apiGateway.dispatch(request,in["data"]);
+  else out["error"]="Unknown operation";
+  String response;serializeJson(out,response);response+='\n';return response;
+}
+void bluetoothHandoff(){
+  bool connected=bluetooth.isConnected();if(connected==wifiSuspended)return;
+  wifiSuspended=connected;
+  if(connected){server.stop();WiFi.softAPdisconnect(true);WiFi.mode(WIFI_OFF);Serial.println("Bluetooth connected: Wi-Fi hotspot paused.");}
+  else{WiFi.mode(WIFI_AP);WiFi.softAP(ssid.c_str(),password.c_str());server.begin();Serial.println("Bluetooth disconnected: Wi-Fi hotspot restored.");}
+  stationDirty=true;
+}
 void loop() {
   serialConsole();
-  server.handleClient();uint32_t now=millis();readGps(gpsFix,now);
+  bluetoothHandoff();bluetooth.poll(bluetoothRequest);
+  if(!wifiSuspended)server.handleClient();uint32_t now=millis();readGps(gpsFix,now);
   for(auto* fix:{&gpsFix,&phoneFix})if(fix->valid && fix->ageMs(now)>POSITION_RETAIN_MS)fix->valid=false;
   for(auto& peer:peers)if(peer.position.valid && peer.position.ageMs(now)>POSITION_RETAIN_MS)peer.position.valid=false;
   if(radioReady && radioFlag) {
@@ -548,7 +582,8 @@ void loop() {
     station.frequency=useBackup?backup:primary;station.batteryMv=batteryReading().millivolts;
     for(const auto& peer:peers)if(active && peer.incident==active && uint32_t(now-peer.last)<PEER_ONLINE_MS)++station.online;
     station.radioState=!radioReady?"RADIO ERROR":transmitting?"TX":rxVisible?"RXING":paused?"RF PAUSED":!txEnabled?"TX OFF":!validCall(callsign)?"SET CALLSIGN":"RF ON";
-    showStationStatus(ssid,password,WiFi.softAPgetStationNum(),outgoingMessages,unreadMessages,newestSender,station);
+    station.bluetooth=bluetooth.isConnected();
+    showStationStatus(ssid,password,bluetooth.isConnected()?1:WiFi.softAPgetStationNum(),outgoingMessages,unreadMessages,newestSender,station);
   }
   if(canTransmit && active && positionEnabled && positionSchedule.due(now,positionInterval)){
     const PositionFix fix=preferredPosition(gpsFix,phoneFix,now);

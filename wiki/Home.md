@@ -9,6 +9,7 @@ Form8 exchanges incident forms and short chat messages between LoRa radios using
 ## Getting started
 
 - [Install or update with the web flasher](https://github.com/pdxlocations/form8/wiki/Web-Flasher)
+- [Connect the Android app over Bluetooth](https://github.com/pdxlocations/form8/wiki/Bluetooth)
 - [nRF52 radios and Android app](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android)
 - [Board selection and builds](https://github.com/pdxlocations/form8/wiki/Board-Guide)
 - [Install firmware for the first time](https://github.com/pdxlocations/form8/wiki/Install-Firmware)

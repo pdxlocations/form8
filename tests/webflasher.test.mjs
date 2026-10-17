@@ -59,3 +59,29 @@ test('original ESP32 builds select ESP32 in the installer while old releases ret
     assert.throws(()=>installManifest({...target,chipFamily},image,'v1','blob:verified'),/Unsupported/);
   }
 });
+
+test('nRF-only releases appear when UF2 and checksums are published', () => {
+  const nrf={...release,id:4,assets:[{name:'SHA256SUMS-NRF52'},{name:'form8-rak4631.uf2'}]};
+  assert.deepEqual(availableReleases([nrf]).map(r=>r.id),[4]);
+  assert.deepEqual(availableReleases([{...nrf,assets:nrf.assets.slice(1)}]),[]);
+});
+
+test('nRF downloads require a matching published asset, size and unique checksum', async () => {
+  const {validateNrfTargets}=await import('../webflasher/model.js');
+  const catalog=[{environment:'rak4631',board:'RAK4631'}];
+  const file='form8-rak4631.uf2';
+  const r={assets:[{name:file,bytes:buffer.byteLength}]};
+  const sums=`${image.sha256}  ${file}\n`;
+  const [t]=validateNrfTargets(catalog,sums,r);
+  await verifyImage(buffer,t.uf2,webcrypto);
+  assert.equal(t.hex,null);
+  assert.throws(()=>installManifest(t,t.uf2,'v1','blob:verified'),/Unsupported/);
+  assert.deepEqual(validateNrfTargets(catalog,sums,{assets:[]}),[]);
+  for(const bytes of [0,-1,9*1024*1024,'12'])assert.deepEqual(validateNrfTargets(catalog,sums,{assets:[{name:file,bytes}]}),[]);
+  for(const bad of [sums+sums,'bad checksum',`${image.sha256}  ../../firmware.uf2`])assert.throws(()=>validateNrfTargets(catalog,bad,r),/checksums/);
+});
+
+test('uploadable nRF catalog matches supported firmware boards', async () => {
+  const {readFile}=await import('node:fs/promises');
+  assert.equal(await readFile(new URL('../webflasher/nrf52-targets.json',import.meta.url),'utf8'),await readFile(new URL('../config/nrf52-targets.json',import.meta.url),'utf8'));
+});

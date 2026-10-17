@@ -11,7 +11,8 @@ function fail_request(string $message, int $status = 502): void {
 
 function allowed_asset(array $asset): bool {
     return ($asset['name'] ?? '') === 'manifest.json'
-        || preg_match('/^form8-[a-z0-9-]+\.bin$/D', $asset['name'] ?? '') === 1;
+        || ($asset['name'] ?? '') === 'SHA256SUMS-NRF52'
+        || preg_match('/^form8-[a-z0-9-]+\.(?:bin|uf2|hex)$/D', $asset['name'] ?? '') === 1;
 }
 
 function github_url(string $url, bool $asset): bool {
@@ -76,7 +77,7 @@ header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store');
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') fail_request('Only GET requests are supported.', 405);
 $resource = $_GET['resource'] ?? '';
-if (!in_array($resource, ['releases', 'manifest', 'binary'], true)) fail_request('Unknown resource.', 400);
+if (!in_array($resource, ['releases', 'manifest', 'checksums', 'binary'], true)) fail_request('Unknown resource.', 400);
 if (isset($_GET['url'])) fail_request('Arbitrary URLs are not supported.', 400);
 try {
     $releases = releases();
@@ -85,7 +86,7 @@ try {
         echo json_encode(['repository' => FORM8_REPOSITORY, 'releases' => array_map(static fn($release) => [
             'id' => $release['id'], 'tag' => $release['tag_name'], 'name' => $release['name'],
             'prerelease' => $release['prerelease'], 'publishedAt' => $release['published_at'],
-            'assets' => array_values(array_map(static fn($asset) => ['id' => $asset['id'], 'name' => $asset['name']],
+            'assets' => array_values(array_map(static fn($asset) => ['id' => $asset['id'], 'name' => $asset['name'], 'bytes' => $asset['size'] ?? 0],
                 array_filter($release['assets'] ?? [], 'allowed_asset'))),
         ], $releases)], JSON_THROW_ON_ERROR);
         exit;
@@ -94,8 +95,8 @@ try {
     if (!is_string($releaseId) || !ctype_digit($releaseId)) fail_request('Invalid release.', 400);
     $matches = array_values(array_filter($releases, static fn($item) => (string) $item['id'] === $releaseId));
     if (!$matches) fail_request('Release is no longer in the latest 20 releases. Refresh the list.', 404);
-    $name = $resource === 'manifest' ? 'manifest.json' : ($_GET['file'] ?? '');
-    if (!is_string($name) || !allowed_asset(['name' => $name]) || ($resource === 'binary' && !str_ends_with($name, '.bin'))) fail_request('Invalid asset.', 400);
+    $name = $resource === 'manifest' ? 'manifest.json' : ($resource === 'checksums' ? 'SHA256SUMS-NRF52' : ($_GET['file'] ?? ''));
+    if (!is_string($name) || !allowed_asset(['name' => $name]) || ($resource === 'binary' && preg_match('/\.(?:bin|uf2|hex)$/D', $name) !== 1)) fail_request('Invalid asset.', 400);
     $assets = array_values(array_filter($matches[0]['assets'] ?? [], static fn($item) => $item['name'] === $name));
     if (!$assets) fail_request('This release does not contain that asset. Its build may still be running.', 404);
     if (($assets[0]['size'] ?? 0) > FORM8_MAX_DOWNLOAD) fail_request('Asset exceeds the download limit.', 413);

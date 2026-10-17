@@ -108,7 +108,12 @@ for environment in args.targets:
     '  pio run -e TARGET -t uploadfs\n'
     'uploadfs erases stored forms. It is not needed for routine firmware/webpage updates.\n'
     'Do not change partition layouts on a radio whose records must be preserved.\n'
-    'Headless XIAO credentials are printed over USB serial at 115200 baud.\n')
+    'Headless credentials are printed over USB serial at 115200 baud; send wifi to display them again.\n\n'
+    'Android Bluetooth: update the app, then Settings > Radio connection > Bluetooth > Find radios > Connect.\n'
+    'Pairing PIN: last 6 digits of the node Wi-Fi password (include leading zeros).\n'
+    'Authenticated Bluetooth pauses the hotspot; disconnect restores the same SSID/password.\n'
+    'Forms, chat and receipts stay on the ESP32, shared by both client transports.\n'
+    'Guide: https://github.com/pdxlocations/form8/wiki/Bluetooth\n')
 if output.exists():
     shutil.rmtree(output)
 stage.rename(output)

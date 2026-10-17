@@ -15,6 +15,20 @@ No Node server, database, cron job, build step, GitHub token, or DreamHost crede
 
 The default repository is set in `config.php`. If you fork Form8, change it there and update the GitHub links in `index.html` and `app.js`.
 
+## Download nRF52840 firmware
+
+The same board selector offers all nine supported nRF targets from GitHub releases. These boards download files instead of using the ESP32 browser installer. A modern phone or desktop browser over HTTPS works; Web Serial is not required for downloads.
+
+1. Choose the release and exact nRF board. Enable **Show prereleases** if needed.
+2. Choose **UF2** for a compatible USB bootloader, or **HEX** for board-specific programming tools.
+3. Confirm the board, click **Download & verify firmware file**, then **Save form8-BOARD.uf2** (or `.hex`). Both file size and SHA-256 must pass before the save link appears.
+4. Before installation, confirm the correct board bootloader and **Nordic S140 7.3.0 are already installed**. These application images do not install either prerequisite. For UF2, enter the board’s bootloader (often RESET twice), check `INFO_UF2.TXT`, and copy the matching UF2 to its drive. For HEX, follow the board’s programming instructions and preserve the required SoftDevice and bootloader. No filesystem upload is needed.
+5. Install the Form8 Android APK from the same release, then use **Settings → Radio connection → Bluetooth or USB serial**. nRF boards have no Wi-Fi hotspot; the Android app provides the interface and message storage.
+
+**T1000-E:** its stock magnetic cable is not a general USB data connection. A UF2 download does not make the board appear as a USB drive. Use the board-specific vendor or SWD programming procedure. Read the [nRF52 and Android guide](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) before installing. All nRF targets remain experimental and need hardware testing.
+
+Existing releases work if they already contain matching `form8-BOARD.uf2` / `.hex` assets and `SHA256SUMS-NRF52`. No new firmware release format is required. The site reads checksums and sizes from that selected release, and lists only recognized boards with a complete UF2 download. If assets are still uploading, refresh after the release build finishes.
+
 ## Prepare maps without a radio
 
 After uploading this folder, open **https://form8.pdxlocs.com/maps.html**, or follow **Open the offline map downloader** from the installer. It works in a modern phone or desktop browser and does not require Web Serial, a radio connection, PHP requests, or GitHub releases. HTTPS is required for optional phone/browser location access; entering coordinates works without that permission.
@@ -28,9 +42,9 @@ After uploading this folder, open **https://form8.pdxlocs.com/maps.html**, or fo
 
 The downloader uses USGS topo tiles with U.S. coverage and the same 400-tile / 32 MB limits as the radio app. Tiles are fetched directly from the USGS HTTPS service; they do not pass through DreamHost or the radio. **Browser storage is separate for this website and the radio's address. Export/import is required even on the same phone.** The exported file contains tiles and the chosen map view; it does not contain station positions. The page supports resuming partial downloads, canceling, importing older map files, removing saved tiles, and light/dark appearance.
 
-Upload `maps.html`, `maps.js`, `maps.css`, and the entire **`map-assets/`** subfolder alongside the installer files. The checked-in `map-assets` are copies of the radio app's map code so uploads need no build step. After changing shared map code, run **`npm run webflasher:prepare`** before uploading; `npm test` checks that these copies match. Do not edit generated map assets directly.
+Upload `maps.html`, `maps.js`, `maps.css`, and the entire **`map-assets/`** subfolder alongside the installer files. The checked-in `map-assets` are copies of the radio app's map code so uploads need no build step. After changing shared map code, run **`npm run webflasher:prepare`** before uploading; `npm test` checks that these copies match. Do not edit generated map assets directly. The same preparation command copies `config/nrf52-targets.json` to the uploadable board catalog; run it when adding nRF targets.
 
-## How a visitor installs
+## How a visitor installs on ESP32
 
 1. Connect the radio with a USB **data** cable. Close serial monitors. Use desktop Chrome or Edge.
 2. Select a release and the exact board/radio variant. Prereleases are hidden until **Show prereleases** is checked. Experimental builds are labeled.
@@ -44,7 +58,7 @@ The USB tool verifies the selected ESP32 or ESP32-S3 chip family; it **cannot id
 
 ## What comes from GitHub?
 
-The bridge reads the **20 most recent published releases**, including prereleases, then serves only their `manifest.json` and `form8-*.bin` assets. Releases without a manifest are hidden until the build finishes. Old app-only releases can offer updates; first installation is available only when a matching factory image and its metadata exist.
+The bridge reads the **20 most recent published releases**, including prereleases, then serves only their `manifest.json`, `SHA256SUMS-NRF52`, and `form8-*.bin`, `.uf2`, or `.hex` assets. ESP32 builds require a manifest; nRF builds require UF2 assets and checksums. Old app-only releases can offer updates; first installation is available only when a matching factory image and its metadata exist.
 
 The release workflow runs:
 
@@ -81,7 +95,7 @@ Localhost supports Web Serial without a certificate. Real hosting must use HTTPS
 
 - **No releases:** publish a release, not just a tag, and wait for the firmware workflow. Confirm the repository is public and the tagged commit contains the workflow and packaging changes. Allow up to five minutes for the cache to refresh.
 - **No first-install image:** older releases contain only app updates. Publish a release with `--webflasher` packaging.
-- **No USB button:** use HTTPS and a browser supporting Web Serial; Safari and iOS are not supported by this installer. Download and verification must finish first.
+- **No USB button:** use HTTPS and a browser supporting Web Serial; Safari and iOS can download nRF files but cannot use the ESP32 USB installer. Download and verification must finish first.
 - **Failed to connect:** try another data cable/port. Hold BOOT, press/release RESET, release BOOT, then select the bootloader USB port. Some USB bridges require a driver.
 - **Checksum or size error:** nothing is flashed. Wait for release uploads to finish, allow the cache to expire, and retry. Do not bypass the check.
 - **GitHub rate limit:** wait a few minutes. Shared-host IPs can share unauthenticated API limits; the five-minute cache reduces requests.

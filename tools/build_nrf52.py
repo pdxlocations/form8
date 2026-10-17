@@ -59,7 +59,7 @@ def main():
     args = parser.parse_args()
     catalog = json.loads((ROOT/'config/nrf52-targets.json').read_text())
     config = configparser.ConfigParser(interpolation=None)
-    config.read(ROOT/'platformio-nrf52.ini')
+    config.read(ROOT/'config/nrf52.ini')
     envs = {s[4:] for s in config.sections() if s.startswith('env:')}
     if envs != {t['environment'] for t in catalog} or len(envs) != len(catalog):
         raise SystemExit('nRF catalog and environments differ')

@@ -38,6 +38,7 @@ public class Form8LinkPlugin extends Plugin {
   private BluetoothGatt gatt;
   private BluetoothGattCharacteristic rx;
   private BluetoothLeScanner scanner;
+  private BluetoothGattCharacteristic pendingSubscription;
   private ScanCallback scanCallback;
   private PluginCall scanCall, connectCall, writeCall, usbPermissionCall;
   private final LinkedHashMap<String, JSObject> found = new LinkedHashMap<>();
@@ -54,6 +55,10 @@ public class Form8LinkPlugin extends Plugin {
       new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+          if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(intent.getAction())) {
+            handleBondState(intent);
+            return;
+          }
           if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(intent.getAction())) {
             if (transport.equals("usb")) close("USB radio disconnected");
             return;
@@ -69,13 +74,28 @@ public class Form8LinkPlugin extends Plugin {
         }
       };
 
+  private final BroadcastReceiver bondReceiver =
+      new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+          handleBondState(intent);
+        }
+      };
+
   @Override
   public void load() {
     super.load();
     IntentFilter filter = new IntentFilter(usbAction);
     filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+
     ContextCompat.registerReceiver(
         getContext(), usbReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
+    // Bluetooth broadcasts come from the privileged Bluetooth process on some Android versions.
+    ContextCompat.registerReceiver(
+        getContext(),
+        bondReceiver,
+        new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED),
+        ContextCompat.RECEIVER_EXPORTED);
   }
 
   private BluetoothAdapter adapter() {
@@ -210,7 +230,7 @@ public class Form8LinkPlugin extends Plugin {
                 close("Bluetooth permission was revoked");
               }
             },
-            20000);
+            60000);
       } catch (Exception e) {
         connectCall = null;
         call.reject(e.getMessage());
@@ -233,8 +253,9 @@ public class Form8LinkPlugin extends Plugin {
                   if (g != gatt) return;
                   if (status != BluetoothGatt.GATT_SUCCESS
                       || state == BluetoothProfile.STATE_DISCONNECTED) {
-                    failConnect("Bluetooth disconnected (" + status + ")");
-                    close("Bluetooth disconnected");
+                    String reason = "Bluetooth disconnected (GATT status " + status + ")";
+                    failConnect(reason);
+                    close(reason);
                   } else if (state == BluetoothProfile.STATE_CONNECTED) {
                     if (!g.requestMtu(247)) g.discoverServices();
                   }
@@ -276,17 +297,21 @@ public class Form8LinkPlugin extends Plugin {
                     close("Service unavailable");
                     return;
                   }
-                  BluetoothGattDescriptor c = tx.getDescriptor(CCC);
-                  if (c == null || !g.setCharacteristicNotification(tx, true)) {
-                    failConnect("Cannot enable Bluetooth notifications");
-                    close("Notifications unavailable");
+                  if (s.getCharacteristic(UUID.fromString("6e400004-b5a3-f393-e0a9-e50e24dcca9e"))
+                          != null
+                      && g.getDevice().getBondState() != BluetoothDevice.BOND_BONDED) {
+                    pendingSubscription = tx;
+                    if (g.getDevice().getBondState() == BluetoothDevice.BOND_NONE
+                        && !g.getDevice().createBond()
+                        && g.getDevice().getBondState() == BluetoothDevice.BOND_NONE) {
+                      failConnect(
+                          "Cannot start pairing. Use the last 6 digits of the node Wi-Fi"
+                              + " password.");
+                      close("Pairing failed");
+                    }
                     return;
                   }
-                  c.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                  if (!g.writeDescriptor(c)) {
-                    failConnect("Cannot subscribe to radio");
-                    close("Subscribe failed");
-                  }
+                  subscribe(g, tx);
 
                 } catch (SecurityException e) {
                   close("Bluetooth permission was revoked");
@@ -344,6 +369,45 @@ public class Form8LinkPlugin extends Plugin {
               });
         }
       };
+
+  private void handleBondState(Intent intent) {
+    try {
+      BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+      if (gatt == null
+          || device == null
+          || !device.getAddress().equals(gatt.getDevice().getAddress())
+          || pendingSubscription == null) return;
+      int state = device.getBondState();
+      if (state == BluetoothDevice.BOND_BONDED) {
+        BluetoothGattCharacteristic characteristic = pendingSubscription;
+        pendingSubscription = null;
+        subscribe(gatt, characteristic);
+      } else if (state == BluetoothDevice.BOND_NONE) {
+        failConnect("Pairing cancelled or failed. PIN: last 6 digits of the node Wi-Fi password.");
+        close("Pairing failed");
+      }
+    } catch (SecurityException e) {
+      close("Bluetooth permission was revoked");
+    }
+  }
+
+  private void subscribe(BluetoothGatt g, BluetoothGattCharacteristic tx) {
+    try {
+      BluetoothGattDescriptor c = tx.getDescriptor(CCC);
+      if (c == null || !g.setCharacteristicNotification(tx, true)) {
+        failConnect("Cannot enable Bluetooth notifications");
+        close("Notifications unavailable");
+        return;
+      }
+      c.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+      if (!g.writeDescriptor(c)) {
+        failConnect("Cannot subscribe to radio");
+        close("Subscribe failed");
+      }
+    } catch (SecurityException e) {
+      close("Bluetooth permission was revoked");
+    }
+  }
 
   private void failConnect(String reason) {
     if (connectCall != null) {
@@ -603,6 +667,7 @@ public class Form8LinkPlugin extends Plugin {
       }
     }
     rx = null;
+    pendingSubscription = null;
     UsbDeviceConnection c = usb;
     usb = null;
     if (c != null) {
@@ -651,6 +716,7 @@ public class Form8LinkPlugin extends Plugin {
     close("App closed");
     try {
       getContext().unregisterReceiver(usbReceiver);
+      getContext().unregisterReceiver(bondReceiver);
     } catch (SecurityException ignored) {
     } catch (Exception ignored) {
     }

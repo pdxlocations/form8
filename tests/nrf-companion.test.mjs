@@ -24,3 +24,28 @@ test('incident-bound submissions cannot leak into another incident',async()=>{co
 test('RPC handles fragmented multibyte UTF-8 and serializes requests',async()=>{const sends=[],plugin={async send(d){sends.push(JSON.parse(d.data));}};const rpc=new RadioRpc(plugin,'f'.repeat(32));const first=rpc.request('hello'),second=rpc.request('status');await new Promise(r=>setImmediate(r));assert.equal(sends.length,1);const response=Buffer.from(JSON.stringify({request:1,data:{text:'👋'}})+'\n');for(const byte of response)rpc.receive(Buffer.from([byte]).toString('base64'));assert.equal((await first).text,'👋');await new Promise(r=>setImmediate(r));assert.equal(sends.length,2);rpc.receive(Buffer.from('{"request":2,"data":{"saved":true}}\n').toString('base64'));assert.equal((await second).saved,true);});
 
 test('ESP32 chat wire bodies without incident fields are accepted using the mesh envelope',async()=>{const h=harness();const body={type:'chat-message',sender:'W7ABC',sentAt:100,text:'ESP32 hello 👋'};h.incoming(body,true);await h.api.connect();assert.equal((await h.api.request('chat')).messages[0].text,body.text);assert(h.calls.some(c=>c[0]==='commit'));assert.equal((await h.api.request('status')).unreadMessages,0);});
+
+test('form address fields appear in traffic metadata and survive offloading, including older records',async()=>{
+ const h=harness();h.incoming({...form,from:'Supply officer',to:'Incident command'});await h.api.connect();
+ let list=await h.api.request('forms');assert.equal(list.forms[0].from,'Supply officer');assert.equal(list.forms[0].to,'Incident command');
+ // Simulate a record created before addresses were retained in metadata.
+ await h.api.change(s=>{delete s.records[0].meta.from;delete s.records[0].meta.to;});
+ list=await h.api.request('forms');assert.equal(list.forms[0].from,'Supply officer');
+ assert.equal((await h.api.request('form?id='+ID)).meta.to,'Incident command');
+ await h.api.request('offload',{id:ID,mode:'discard'});
+ list=await h.api.request('forms');assert.equal(list.forms[0].from,'Supply officer');assert.equal(list.forms[0].to,'Incident command');
+ assert.equal(h.saved.records[0].body,undefined);
+});
+
+test('nRF adapter rejects ESP32 hello before changing storage or sending nRF commands',async()=>{
+ const h=harness();
+ await assert.rejects(h.api.connect({node:NODE,board:'Heltec V3',protocol:'form8-api-v1',storage:'radio'}),/ESP32.*Android APK/);
+ assert.equal(h.api.connected,false);assert.equal(h.api.status,null);assert.deepEqual(h.calls,[]);
+});
+
+test('restoring an old ESP32 hello in companion storage does not crash on missing peers',async()=>{
+ const h=harness();await h.api.connect();await h.api.change(s=>{s.lastStatus={node:NODE,protocol:'form8-api-v1',storage:'radio'};});
+ h.api.connected=false;await h.api.restore(NODE);
+ assert.equal(h.api.status,null);
+ await assert.rejects(h.api.request('status'),/Choose a radio connection/);
+});

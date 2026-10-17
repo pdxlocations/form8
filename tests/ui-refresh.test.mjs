@@ -2,16 +2,16 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {manualAcknowledgments, receiptRows} from '../web/model.js';
+import {manualAcknowledgments, receiptRows, formDeliverySummary} from '../web/model.js';
 
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
 function harness(){
   const elements=new Map(),calls=[];
-  function element(){return {hidden:true,children:[],elements:new Proxy({}, {get:(target,key)=>target[key]??=( {value:'',checked:false})}),replaceChildren(){this.children=[];},append(...items){this.children.push(...items);},setAttribute(){}};}
+  function element(){return {hidden:true,children:[],elements:new Proxy({}, {get:(target,key)=>target[key]??=( {value:'',checked:false})}),replaceChildren(...items){this.children=[...items];},append(...items){this.children.push(...items);},setAttribute(){},dataset:{},classList:{toggle(){}}};}
   const $=selector=>{if(!elements.has(selector))elements.set(selector,element());return elements.get(selector);};
   let next={node:'radio1',bootSession:1,callsign:'TEST2',frequency:919.5,peers:[],incident:'42',incidentName:'Test',storageUsed:0,storageTotal:1048576,queue:0,fsReady:true,radioReady:true,txEnabled:true,band:'uhf',board:'Heltec',clockSource:'unset',power:14};
   let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
-  const context=vm.createContext({updateNavigationBadges(){},positionClient:{update(){}},mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value)=>({...element(),tag,value}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>calls.push('traffic'),loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
+  const context=vm.createContext({updateNavigationBadges(){},positionClient:{update(){}},mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value)=>({...element(),tag,value}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>calls.push('traffic'),loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
   const originalApi=context.api;context.api=async(path,body)=>path==='time'?(calls.push({path,body}),{saved:true}):originalApi(path,body);
   vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',offset=0;"+source.slice(source.indexOf('function poll()'),source.indexOf('function deliveryIndicator'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
   return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};
@@ -167,10 +167,12 @@ test('message detail renders and refreshes the complete manual callsign list',()
   vm.runInContext("status={node:'self',callsign:'NET-A',peers:[{id:'b',callsign:'NET-B'}]};"+source.slice(source.indexOf('function renderReceipts('),source.indexOf('async function loadTraffic()')),h.context);
   h.context.meta={receipts:[{id:'self',human:true},{id:'b',human:true},{id:'c',human:false}]};
   vm.runInContext('renderReceipts(meta)',h.context);
-  const names=()=>h.$('#delivery-detail').children.find(e=>e.tag==='ul').children.map(e=>e.value);
-  assert.deepEqual(names(),['NET-A','NET-B']);
+  const humanRow=()=>h.$('#delivery-detail').children[1].children[0].value;
+  assert.equal(humanRow(),'Human Ack: NET-A, NET-B');
   h.context.meta.receipts.push({id:'offline',callsign:'NET-C',human:true});
-  vm.runInContext('renderReceipts(meta)',h.context);assert.deepEqual(names(),['NET-A','NET-B','NET-C']);
+  vm.runInContext('renderReceipts(meta)',h.context);assert.equal(humanRow(),'Human Ack: NET-A, NET-B, NET-C');
+  h.context.meta={receipts:[{id:'c',human:false}]};
+  vm.runInContext('renderReceipts(meta)',h.context);assert.equal(humanRow(),'Human Ack: None yet');
 });
 
 test('TX power range comes from the board and refreshes without overwriting an edit',async()=>{
@@ -183,4 +185,18 @@ test('TX power range comes from the board and refreshes without overwriting an e
   h.update({powerMax:22,powerIsDrive:true});await h.poll();
   assert.equal(h.$('#tx-power-label').textContent,'TX chip drive · dBm');assert.match(h.$('#tx-power-help').textContent,/not final antenna output/);
   h.update({powerMax:10,band:'vhf'});await h.poll();assert.equal(power.max,10);
+});
+
+test('sent message info bar refreshes ACKs after returning to the list without replacing unrelated feedback',async()=>{
+ const h=harness();h.context.formDeliverySummary=formDeliverySummary;
+ vm.runInContext(source.slice(source.indexOf('function feedback('),source.indexOf('function run(')),h.context);
+ h.context.meta={id:'abc',recipient:'*',receipts:[]};
+ vm.runInContext("status={node:'radio1',txEnabled:true,peers:[]};feedback('Saved · awaiting radio ACK');",h.context);
+ h.$('#feedback').dataset.form='radio1/abc';
+ h.setRecord({meta:{id:'abc',receipts:[{id:'b',callsign:'NET-B'}]}});
+ await h.poll();assert.match(h.$('#feedback').textContent,/Radio Ack: NET-B/);assert.doesNotMatch(h.$('#feedback').textContent,/awaiting/i);
+ h.setRecord({meta:{id:'abc',receipts:[{id:'b',callsign:'NET-B',human:true}]}});
+ await h.poll();assert.match(h.$('#feedback').textContent,/Human Ack: NET-B/);
+ vm.runInContext("feedback('New error',true)",h.context);
+ await h.poll();assert.equal(h.$('#feedback').textContent,'New error');
 });

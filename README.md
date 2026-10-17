@@ -1,6 +1,6 @@
 # Form8
 
-Form8 exchanges **Portland NET Form 8 / ICS 213 messages and short chat messages over LoRa**, using a phone or laptop. ESP32 radios host a Wi-Fi webpage; nRF52840 radios connect to the Android companion over Bluetooth or USB serial. Messaging works without internet or cell service after installation.
+Form8 exchanges **Portland NET Form 8 / ICS 213 messages and short chat messages over LoRa**, using a phone or laptop. ESP32 radios host a Wi-Fi webpage or connect to the Android app over paired Bluetooth; nRF52840 radios connect to the Android companion over Bluetooth or USB serial. Messaging works without internet or cell service after installation.
 
 Forms support radio receipts, manual acknowledgments, replies, corrections, and device archives. Chat supports emoji, reactions, and replies. A map shows incident stations, with automatic GPS positioning, configurable position sharing, and downloadable U.S. topo maps for offline use. The interface fits a phone screen; on nRF radios, the app carries the interface and message storage.
 

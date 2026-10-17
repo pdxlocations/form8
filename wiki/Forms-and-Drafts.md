@@ -1,6 +1,8 @@
 # Read, acknowledge, reply, or correct
 
-Open **Traffic** to see a compact message list. Click **Open** to show one message at a time.
+Open **Traffic** to see a compact message list with each form’s **From** and **To** fields alongside the routing callsigns. Click **Open** to show one message at a time.
+
+In a message, **Human Ack** lists every callsign that manually acknowledged it, including your own station and stations now offline. **None yet** means no human acknowledgment has been recorded. Radio acknowledgments remain separate. After sending, the saved-message info bar updates automatically from waiting to **Radio Ack: CALLSIGN** and **Human Ack: CALLSIGN** as receipts arrive, including while you browse the traffic list. A new notification or error replaces that bar. From/To fields remain available after offloading new messages; older messages can recover them while their bodies are still stored.
 
 - **Back to traffic** returns to your list page.
 - **Previous message / Next message** appear when another message is available in that view, including across pages.

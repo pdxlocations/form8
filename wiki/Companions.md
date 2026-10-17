@@ -8,7 +8,7 @@ The native Android project is checked in. Build with `npm ci` then `npm run buil
 
 For nRF52840, select **Settings → Radio connection → Bluetooth or USB serial**. The app stores bodies and receipt metadata locally, and only confirms reception after a successful storage transaction. Keep the app in the foreground; there is no background service. Follow the [nRF52 / Android guide](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) for installation, board targets, storage limits, and reconnect behavior.
 
-For ESP32, select **Wi-Fi (ESP32)** and connect the phone to the radio hotspot at `192.168.4.1`. Native HTTP and cleartext local access are configured in the manifest. Native location requests permission when needed; denied GPS access leaves messaging available. Archive/map export uses Android's document save picker. Physical installation, Bluetooth/USB, GPS, export/import, and reconnect testing remain necessary.
+For ESP32, choose **Bluetooth (ESP32 / nRF52)** for the [paired Bluetooth connection with automatic Wi-Fi handoff](https://github.com/pdxlocations/form8/wiki/Bluetooth), or choose **Wi-Fi (ESP32)** and join the radio hotspot at `192.168.4.1`. Both transports use the same message storage on the ESP32. Native HTTP and cleartext local access are configured in the manifest. Native location requests permission when needed; denied GPS access leaves messaging available. Archive/map export uses Android's document save picker. Physical installation, Bluetooth/USB, GPS, export/import, and reconnect testing remain necessary.
 
 ## iOS
 

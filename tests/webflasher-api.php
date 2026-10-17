@@ -14,6 +14,11 @@ $checks = [
     'path traversal' => !allowed_asset(['name' => '../../config.php']),
     'wrong extension' => !allowed_asset(['name' => 'form8-test.bin.php']),
     'newline suffix' => !allowed_asset(['name' => "form8-test.bin\n"]),
+    'nRF UF2' => allowed_asset(['name' => 'form8-rak4631.uf2']),
+    'nRF HEX' => allowed_asset(['name' => 'form8-rak4631.hex']),
+    'nRF checksums' => allowed_asset(['name' => 'SHA256SUMS-NRF52']),
+    'nRF traversal' => !allowed_asset(['name' => '../form8-rak4631.uf2']),
+    'nRF suffix' => !allowed_asset(['name' => 'form8-rak4631.uf2.php']),
     'factory asset' => allowed_asset(['name' => 'form8-heltec-v3-factory.bin']),
 ];
 foreach ($checks as $name => $passed) {

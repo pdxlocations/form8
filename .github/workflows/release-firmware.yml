@@ -61,21 +61,8 @@ jobs:
       - name: Install PlatformIO
         run: python3 -m pip install platformio==6.1.19
 
-      - name: Check that every environment is packaged
-        run: |
-          python3 - <<'PY'
-          import configparser
-          import json
-          from pathlib import Path
-
-          config = configparser.ConfigParser(interpolation=None)
-          config.read('platformio.ini')
-          environments = {section.removeprefix('env:') for section in config.sections() if section.startswith('env:')}
-          catalog = json.loads(Path('config/firmware-targets.json').read_text())
-          targets = {target['environment'] for target in catalog}
-          if targets != environments or len(targets) != len(catalog):
-              raise SystemExit('Each PlatformIO environment must appear exactly once in config/firmware-targets.json')
-          PY
+      - name: Check every visible environment against both firmware catalogs
+        run: python3 tools/check_firmware_targets.py
 
       - name: Build and package every target
         run: python3 tools/build_firmware.py --webflasher
@@ -104,6 +91,8 @@ jobs:
           npm ci
           npm test
           npm run test:mesh
+          npm run test:api
+          npm run test:ble
 
       - name: Install Android SDK components
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"'

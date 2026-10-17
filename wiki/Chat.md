@@ -9,7 +9,7 @@
 5. Click **Reply** below a message to link your answer to it. Click **Cancel reply** to send a new message instead. An older reply target may show only its ID if it has left this radio's history.
 6. Use **React** to choose 👍, 👎, ❤️, ✅, ❓, 🚨, or 👀. Click your highlighted reaction to remove it. Reaction buttons show counts; their tooltips list callsigns and the radio-ACK state of your own reaction.
 
-Chat uses the page’s normal scrolling, with no separate scrolling message window. The small chat toolbar stays available as you scroll: **Latest** jumps to the newest message, and **Write** takes you to the message box. Incoming messages follow only when you are already at the end; reading older messages or typing keeps your position.
+Chat uses the page’s normal scrolling, with no separate scrolling message window. The message box and emoji buttons appear at the top, followed by messages with the newest first. Each message keeps its reply and reaction controls. The small chat toolbar stays available as you scroll: **Oldest** jumps to the oldest displayed message. Incoming messages appear at the top; reading older messages or typing keeps your position.
 
 The page refreshes chat and delivery information automatically; **Refresh data** also updates it without changing tabs or clearing your text. Changing incidents keeps typed text but requires **Use this text in the current incident** before sending it there.
 

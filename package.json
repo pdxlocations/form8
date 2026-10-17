@@ -17,7 +17,10 @@
     "build:firmware": "python3 tools/build_firmware.py",
     "test:boards": "python3 tools/test_boards.py",
     "build:android": "python3 tools/build_android.py",
-    "build:nrf52": "python3 tools/build_nrf52.py"
+    "build:nrf52": "python3 tools/build_nrf52.py",
+    "test:targets": "python3 tools/check_firmware_targets.py",
+    "test:api": "python3 tools/test_api_gateway.py",
+    "test:ble": "python3 tools/test_ble_session.py"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",

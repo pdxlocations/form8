@@ -7,6 +7,7 @@ npm test
 npm run test:mesh
 npm run test:display
 npm run test:boards
+npm run test:api
 pio run -e heltec-v3
 pio run -e heltec-v3 -t buildfs
 ```
@@ -41,3 +42,7 @@ python3 tools/publish_wiki.py
 ```
 
 The wiki must first have an initial Home page created through GitHub’s Wiki tab. Publishing requires working GitHub Git credentials (`gh auth login` and, if needed, `gh auth setup-git`). The helper clones the wiki, updates these documentation pages, commits changed files using the project’s Git identity, and pushes without force. Other wiki pages are preserved.
+
+## ESP32 Bluetooth implementation
+
+`include/ApiGateway.h` dispatches both HTTP and BLE onto the same API handlers on the Arduino main loop. NimBLE callbacks enqueue bounded fragments; they do not write LittleFS or alter LoRa state. `include/EspBleBridge.h` provides paired/encrypted Nordic UART transport and idle timeouts. The main loop suspends/restores Wi-Fi after authenticated Bluetooth connection/disconnection. Android identifies the ESP32 pairing marker, waits for bonding, and selects `companion/radio-api.js`; nRF keeps its existing companion storage adapter. The portable API gateway test covers two-way HTTP/BLE shared writes/reads, request IDs, Unicode, framing, bad routes, and rejected writes with the firmware's ArduinoJson version. Physical pairing, timeout recovery, and RF coexistence still need device testing.
