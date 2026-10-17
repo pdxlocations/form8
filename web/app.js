@@ -1,7 +1,7 @@
 import {UnreadTracker,setNavBadge} from './unread.js';
 import {createMapPanel} from './map.js';
 import {PositionClient,deviceLocation,locationPayload} from './position-client.js';
-import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, formDeliverySummary, manualAcknowledgments, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
+import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, formDeliverySummary, canReplyToForm, formReplyDraft, manualAcknowledgments, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
 const $ = selector => document.querySelector(selector);
 let status = null, offset = 0, total = 0, draftTimer, locationData = null, settingsLoaded = false, boundIncident = '';
 let messageNeighbors = {previous:null,next:null};
@@ -128,7 +128,7 @@ async function deleteDraft(id,subject) {
 }
 function fill(d={}) {
   form.reset();locationData=d.location||null;boundIncident=d.boundIncident||'';
-  for(const [name,value] of Object.entries(d))if(form.elements.namedItem(name) && typeof value!=='object')form.elements.namedItem(name).value=value;
+  for(const [name,value] of Object.entries(d))if(form.elements.namedItem(name) && value!=null && typeof value!=='object')form.elements.namedItem(name).value=value;
   form.elements.clientToken.value=d.clientToken||token();form.elements.addressMode.value=d.recipient && d.recipient!=='*'?'callsign':'broadcast';
   form.elements.recipient.disabled=form.elements.addressMode.value==='broadcast';
   if(d.location){form.elements.lat.value=d.location.lat;form.elements.lon.value=d.location.lon;}
@@ -439,6 +439,22 @@ async function openForm(id) {
   displayedRecord='';renderForm(record);
   await poll();
 }
+async function replyToForm(record) {
+  try {
+    const draft=formReplyDraft(record,status);
+    clearTimeout(draftTimer);
+    await saveDraft();
+    fill(draft);
+    showTab('compose');
+    form.scrollIntoView({block:'start'});
+    form.elements.message.focus({preventScroll:true});
+    await saveDraft();
+    feedback(`Reply to ${draft.recipient} · linked to ${record.meta.id.slice(-8)}. Enter your response and send it.`);
+  } catch(error) {
+    feedback(`Cannot prepare reply: ${error.message}`,true);
+    $('#feedback').scrollIntoView({block:'center'});
+  }
+}
 function renderForm(record) {
   refreshFormFeedback(record.meta);
   setTrafficView();
@@ -465,9 +481,9 @@ function renderForm(record) {
       await poll();
     });
     acknowledge.disabled=acknowledged;
-    actions.append(acknowledge,button('Reply',async()=>{
-      await saveDraft();fill({parent:id,subject:`Re: ${d.subject||''}`.slice(0,160),to:d.from,from:d.to,recipient:d.sender,priority:m.priority});await saveDraft();showTab('compose');
-    }),button('Correction',async()=>{
+    actions.append(acknowledge);
+    if(canReplyToForm(m,status))actions.append(button('Reply',()=>replyToForm(record)));
+    actions.append(button('Correction',async()=>{
       await saveDraft();const corrected={...d,clientToken:token(),parent:id,subject:`Correction: ${d.subject||''}`.slice(0,160)};delete corrected.boundIncident;fill(corrected);await saveDraft();showTab('compose');
     }),button('Archive & free radio storage',async()=>{
       const pending=receiptRows(m,status?.peers||[],status?.node).filter(r=>!r.received).length;

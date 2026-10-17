@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {manualAcknowledgments, receiptRows, formDeliverySummary} from '../web/model.js';
+import {manualAcknowledgments, receiptRows, formDeliverySummary, canReplyToForm} from '../web/model.js';
 
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
 function harness(){
@@ -11,7 +11,7 @@ function harness(){
   const $=selector=>{if(!elements.has(selector))elements.set(selector,element());return elements.get(selector);};
   let next={node:'radio1',bootSession:1,callsign:'TEST2',frequency:919.5,peers:[],incident:'42',incidentName:'Test',storageUsed:0,storageTotal:1048576,queue:0,fsReady:true,radioReady:true,txEnabled:true,band:'uhf',board:'Heltec',clockSource:'unset',power:14};
   let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
-  const context=vm.createContext({updateNavigationBadges(){},positionClient:{update(){}},mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value)=>({...element(),tag,value}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>calls.push('traffic'),loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
+  const context=vm.createContext({updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value)=>({...element(),tag,value}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>calls.push('traffic'),loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
   const originalApi=context.api;context.api=async(path,body)=>path==='time'?(calls.push({path,body}),{saved:true}):originalApi(path,body);
   vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',offset=0;"+source.slice(source.indexOf('function poll()'),source.indexOf('function deliveryIndicator'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
   return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};

@@ -61,3 +61,18 @@ test('sent form summary switches from waiting to radio and human ACK callsigns',
  assert.equal(formDeliverySummary({receipts:[]},{...station,paused:true}),'Transmission paused');
  assert.equal(formDeliverySummary({receipts:[]},{...station,txEnabled:false}),'Transmission disabled');
 });
+
+test('the original sender is labeled Origin on both sender and receiving apps, even without a receipt',()=>{
+ const meta={origin:'sender',sender:'NET-A',recipient:'*',expected:[{id:'sender',callsign:'NET-A'}],receipts:[{id:'sender',human:false}]};
+ for(const self of ['sender','receiver']){
+  const origin=receiptRows(meta,[],self).find(row=>row.id==='sender');
+  assert.equal(origin.status,'Origin');assert.equal(origin.callsign,'NET-A');assert.equal(origin.received,true);
+  assert.deepEqual(deliveryStatus(meta,[],self).radio,[]);
+  assert.equal(deliveryStatus(meta,[],self).complete,false);
+ }
+ meta.receipts=[];
+ assert.equal(receiptRows(meta,[],'receiver')[0].status,'Origin');
+ meta.receipts=[{id:'sender',human:true},{id:'other',callsign:'NET-B',human:false}];
+ assert.equal(receiptRows(meta,[],'receiver')[0].status,'Origin');
+ assert.deepEqual(deliveryStatus(meta,[],'receiver').radio,['NET-B']);
+});

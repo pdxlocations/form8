@@ -90,15 +90,17 @@ export function receiptRows(meta, peers, self) {
   for (const receipt of meta.receipts || []) {
     if (receipt.id !== self && !rows.has(receipt.id)) rows.set(receipt.id, {id: receipt.id});
   }
+  if(meta.origin)rows.set(meta.origin,{...(rows.get(meta.origin)||{}),id:meta.origin});
   return [...rows.values()].map(row => {
+    const origin=row.id===meta.origin;
     const peer = peers.find(p => p.id === row.id);
     const receipt = (meta.receipts || []).find(r => r.id === row.id);
-    return {...row, callsign: peer?.callsign || row.callsign || receipt?.callsign || row.id, received: !!receipt, human: !!receipt?.human,
-      online: !!peer?.online, status: receipt?.human ? 'Human acknowledged' : receipt ? 'Radio received' : peer?.online ? 'Pending' : 'Pending · offline'};
+    return {...row, origin, callsign: (origin?meta.sender:'') || peer?.callsign || row.callsign || receipt?.callsign || row.id, received: origin || !!receipt, human: !!receipt?.human,
+      online: !!peer?.online, status: origin ? 'Origin' : receipt?.human ? 'Human acknowledged' : receipt ? 'Radio received' : peer?.online ? 'Pending' : 'Pending · offline'};
   });
 }
 export function deliveryStatus(meta, peers, self) {
-  const rows=receiptRows(meta,peers,self);
+  const rows=receiptRows(meta,peers,self).filter(row=>!row.origin);
   const radio=rows.filter(r=>r.received).map(r=>r.callsign);
   const human=rows.filter(r=>r.human).map(r=>r.callsign);
   const directed=meta.recipient && meta.recipient!=='*';
@@ -132,4 +134,19 @@ export function formDeliverySummary(meta, station) {
   if(radio.length)parts.push(`Radio Ack: ${radio.join(', ')}`);
   if(human.length)parts.push(`Human Ack: ${human.join(', ')}`);
   return parts.join(' · ') || (station.paused?'Transmission paused':!station.txEnabled?'Transmission disabled':'Awaiting radio ACK');
+}
+
+export function canReplyToForm(meta,station) {
+  if(!station?.node)return false;
+  return meta.origin?meta.origin!==station.node:!!meta.sender&&meta.sender!==station.callsign;
+}
+export function formReplyDraft(record,station) {
+  const meta=record.meta;
+  if(!canReplyToForm(meta,station))throw new Error('Reply is for received messages. Use Correction to update your own message.');
+  if(!record.body)throw new Error('The message body is no longer available on this device.');
+  const body=JSON.parse(record.body),recipient=body.sender||meta.sender;
+  if(!/^[A-Z0-9/-]{3,16}$/.test(recipient||''))throw new Error('This message has no valid sender callsign to reply to.');
+  return {parent:meta.id,subject:`Re: ${body.subject||meta.subject||''}`.slice(0,160),
+    to:body.from||recipient,from:body.recipient==='*'?station.callsign||'':body.to||station.callsign||'',
+    recipient,priority:meta.priority??body.priority??0,boundIncident:meta.incident||body.incident||station.incident};
 }

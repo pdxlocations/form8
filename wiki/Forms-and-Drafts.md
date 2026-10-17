@@ -2,12 +2,12 @@
 
 Open **Traffic** to see a compact message list with each form’s **From** and **To** fields alongside the routing callsigns. Click **Open** to show one message at a time.
 
-In a message, **Human Ack** lists every callsign that manually acknowledged it, including your own station and stations now offline. **None yet** means no human acknowledgment has been recorded. Radio acknowledgments remain separate. After sending, the saved-message info bar updates automatically from waiting to **Radio Ack: CALLSIGN** and **Human Ack: CALLSIGN** as receipts arrive, including while you browse the traffic list. A new notification or error replaces that bar. From/To fields remain available after offloading new messages; older messages can recover them while their bodies are still stored.
+In a message, **Human Ack** lists every callsign that manually acknowledged it, including your own station and stations now offline. **None yet** means no human acknowledgment has been recorded. The original sending station is labeled **Origin**, including when viewing your own sent form. Origin is not counted as a remote radio acknowledgment. Radio acknowledgments remain separate. After sending, the saved-message info bar updates automatically from waiting to **Radio Ack: CALLSIGN** and **Human Ack: CALLSIGN** as receipts arrive, including while you browse the traffic list. A new notification or error replaces that bar. From/To fields remain available after offloading new messages; older messages can recover them while their bodies are still stored.
 
 - **Back to traffic** returns to your list page.
 - **Previous message / Next message** appear when another message is available in that view, including across pages.
 - **Acknowledge** records your station's human acknowledgment.
-- **Reply** starts a new form linked to the original. Enter your response and send it.
+- **Reply** appears on received forms. It opens Compose, focuses the response box, addresses the reply to the original sender’s callsign, and links it to the original form. Broadcast replies use your callsign in From. Enter your response and send it. Your own forms offer **Correction** instead of Reply. If the local draft cannot be saved, a visible error explains why.
 - **Correction** copies the original into a new draft, prefixes the subject with `Correction:`, and links it to the original. Make your changes and send it.
 
 **Sent forms cannot be edited.** For example, if you sent “Bring 10 chairs” but meant 20, use **Correction**, change the text to “Bring 20 chairs,” and send the new form. The original remains available.
