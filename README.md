@@ -16,6 +16,10 @@ Example screens from the local simulator; these do not demonstrate an RF connect
 
 ![Form8 Compose screen with a sample supply request](docs/screenshots/compose.png)
 
+### Traffic
+
+![Form8 Traffic tab listing messages with From and To fields and radio acknowledgment status](docs/screenshots/traffic-list.png)
+
 ### Read and acknowledge a message
 
 ![Form8 message reader with callsigns for Radio ACK, Human Ack, and Origin](docs/screenshots/traffic.png)
@@ -24,6 +28,18 @@ Example screens from the local simulator; these do not demonstrate an RF connect
 
 ![Form8 incident chat with composer at the top, newest messages first, replies, emoji reactions, and radio receipts](docs/screenshots/chat.png)
 
+### Incidents
+
+![Form8 Incidents tab for creating, joining, and switching between nearby and retained incidents](docs/screenshots/incidents.png)
+
 ### Incident map
 
 ![Form8 map with simulated incident stations and USGS topo tiles](docs/screenshots/map.png)
+
+### Device archive
+
+![Form8 Device archive tab with an archived form, message preview, and import and export controls](docs/screenshots/archive.png)
+
+### Station and radio settings
+
+![Form8 Settings tab with appearance, callsign, modem settings, transmit controls, and position sharing](docs/screenshots/settings.png)
