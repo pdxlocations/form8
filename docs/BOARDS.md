@@ -14,9 +14,8 @@ These targets build the same Form8 Wi-Fi/web interface and radio protocol. **Com
 | `tlora-t3-s3-sx1276` | LILYGO T3-S3, 868/915 MHz SX1276 version | 4 MB | OLED | Yes |
 | `tbeam` | Original ESP32 T-Beam V1.0/V1.1/V1.2, 868/915 MHz SX1276 | 4 MB | Optional OLED | PMU |
 | `tbeam-sx1262` | Original ESP32 T-Beam V1.x, 868/915 MHz SX1262 | 4 MB | Optional OLED | PMU |
-| `tlora-v1` | First-generation TTGO T-LoRa/LoRa32 V1, SX1276, OLED GPIO4/15 | 4 MB | OLED | None configured |
 | `tlora-v1-3` | T-LoRa T3 V1.3, SX1276, radio reset GPIO14 | 4 MB | OLED | Yes |
-| `tlora-v2-1` | LoRa32 V2.1 / T3 V1.6.x, crystal SX1276, radio reset GPIO23 | 4 MB | OLED | Yes |
+| `tlora-v2-1-1-6` | T-LoRa V2.1-1.6 / T3 V1.6, 868/915 MHz SX1276 | 4 MB | OLED | Yes |
 | `tbeam-bpf` | LILYGO T-Beam BPF, experimental VHF | 16 MB | None configured | None configured |
 
 The `tbeam-bpf` environment is an experimental VHF target. Its onboard L76K GPS is supported (UART RX6/TX5, 9600 baud), with AXP2101 ALDO4 GPS power enabled at 3.3 V. GPS acquisition, power-management behavior, display, and RF operation still need physical verification. It is included in the firmware bundle and marked experimental in the manifest.
@@ -57,24 +56,24 @@ These are **ESP32** builds, separate from the ESP32-S3 T3-S3 and T-Beam BPF buil
 
 **T-Beam V1.x:** choose `tbeam` for SX1276 (maximum 20 dBm), or `tbeam-sx1262` for SX1262 (maximum 22 dBm). Power initialization detects AXP192 or AXP2101 and enables the radio/GPS rails before radio startup; PMU battery voltage is supported. The GPS UART uses ESP32 RX34/TX12 at 9600 baud. An optional SSD1306 OLED uses SDA21/SCL22; without it, retrieve Wi-Fi credentials over USB serial using `wifi` at 115200 baud. T-Beam V0.7, S3 Supreme, LR1121, and 433 MHz variants are not covered by these targets.
 
-**T-LoRa revisions:** choose by the PCB revision/pin wiring, not just the words “T-LoRa.” These three targets use SX1276 and accept 2–20 dBm:
+**T-LoRa revisions:** choose by the PCB revision/pin wiring, not just the words “T-LoRa.” Both targets use SX1276 and accept 2–20 dBm:
 
 | Target | OLED SDA/SCL/reset | Radio reset | Battery |
 |---|---|---|---|
-| `tlora-v1` | 4 / 15 / 16 | GPIO14 | Not configured |
 | `tlora-v1-3` | 21 / 22 / none | GPIO14 | ADC35, 2:1 divider |
-| `tlora-v2-1` | 21 / 22 / none | GPIO23 | ADC35, 2:1 divider |
+| `tlora-v2-1-1-6` | 21 / 22 / none | GPIO23 | ADC35, 2:1 divider |
 
-All three use radio SPI SCK5/MISO19/MOSI27, CS18, and DIO0/IRQ26. TCXO-equipped T3 variants, SX1278/433 MHz, and other revisions need a matching target and are not interchangeable. SD card and external GPS accessories are not integrated.
+Both use radio SPI SCK5/MISO19/MOSI27, CS18, DIO0/IRQ26, and DIO1 on GPIO33. TCXO-equipped T3 variants, SX1278/433 MHz, and other revisions need a matching target and are not interchangeable. SD card and external GPS accessories are not integrated.
+
+The old `tlora-v1` target has been removed. `tlora-v1-3` remains supported. The previous generic `tlora-v2-1` build is now named `tlora-v2-1-1-6`; the matching app-only update retains the same partition layout. Older GitHub releases retain their original target names.
 
 Build examples:
 
 ```sh
 pio run -e tbeam
 pio run -e tbeam-sx1262
-pio run -e tlora-v1
 pio run -e tlora-v1-3
-pio run -e tlora-v2-1
+pio run -e tlora-v2-1-1-6
 ```
 
 The pin/PMU assignments follow [LILYGO's board definitions](https://github.com/Xinyuan-LilyGO/LilyGo-LoRa-Series/blob/master/examples/GPS/TinyGPS_KitchenSink/utilities.h), [their PMU initialization](https://github.com/Xinyuan-LilyGO/LilyGo-LoRa-Series/blob/master/examples/GPS/TinyGPS_KitchenSink/LoRaBoards.cpp), and the [original LoRa32 V1 Arduino variant](https://github.com/espressif/arduino-esp32/blob/2.0.17/variants/ttgo-lora32-v1/pins_arduino.h). Physical RF, GPS acquisition, PMU behavior, OLED operation, and battery readings still need verification on these boards.
@@ -201,7 +200,7 @@ The board-specific constants live in `include/BoardConfig.h`; radio setup lives 
 |---|---|---|
 | Heltec V3, XIAO S3 + Wio-SX1262, T3-S3 SX1262, original T-Beam SX1262 | 2–22 dBm | SX1262 transmit power setting |
 | Heltec V4.2 and V4.3 | 2–22 dBm | **TX chip drive**: SX1262 setting before the board's external amplification, not final antenna output |
-| T3-S3 SX1276, original T-Beam SX1276, original T-LoRa targets | 2–20 dBm | SX1276 transmit power setting |
+| T3-S3 SX1276, original T-Beam SX1276, T-LoRa V1.3 / V2.1-1.6 | 2–20 dBm | SX1276 transmit power setting |
 | T-Beam BPF | 2–10 dBm | Board-specific VHF limit |
 
 The default remains 14 dBm on UHF boards and 10 dBm on T-Beam BPF. Existing valid saved values are preserved; an out-of-range saved value is clamped to the supported range during startup.

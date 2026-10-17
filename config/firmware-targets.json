@@ -8,7 +8,6 @@
   {"environment":"tbeam-bpf","board":"LILYGO T-Beam BPF (experimental VHF)","radio":"SX1278","flashMiB":16,"partitions":"partitions/bpf.csv","oled":false,"battery":false,"experimental":true,"chipFamily":"ESP32-S3"},
   {"environment":"tbeam","board":"LILYGO T-Beam V1.x ESP32 (AXP192/AXP2101, SX1276)","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"gps":true,"chipFamily":"ESP32"},
   {"environment":"tbeam-sx1262","board":"LILYGO T-Beam V1.x ESP32 (AXP192/AXP2101, SX1262)","radio":"SX1262","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"gps":true,"chipFamily":"ESP32"},
-  {"environment":"tlora-v1","board":"TTGO T-LoRa V1 ESP32 (OLED 4/15, SX1276)","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":false,"gps":false,"chipFamily":"ESP32"},
   {"environment":"tlora-v1-3","board":"LILYGO T-LoRa T3 V1.3 ESP32 (reset14, SX1276)","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"gps":false,"chipFamily":"ESP32"},
-  {"environment":"tlora-v2-1","board":"LILYGO LoRa32 V2.1 / T3 V1.6 ESP32 (reset23, SX1276)","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"gps":false,"chipFamily":"ESP32"}
+  {"environment":"tlora-v2-1-1-6","board":"LILYGO T-LoRa V2.1-1.6 / T3 V1.6 ESP32 (SX1276)","radio":"SX1276","flashMiB":4,"partitions":"partitions/t3-s3.csv","oled":true,"battery":true,"gps":false,"chipFamily":"ESP32"}
 ]

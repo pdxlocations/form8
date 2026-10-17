@@ -88,9 +88,7 @@ int main(){
   detectedPmu=192;boardPower();
 #elif defined(FORM8_TLORA)
   assert(RADIO_SCK==5 && RADIO_MISO==19 && RADIO_MOSI==27 && RADIO_CS==18 && RADIO_IRQ==26 && RADIO_BUSY==33);
-#if defined(FORM8_TLORA_V1)
-  assert(RADIO_RESET==14 && DISPLAY_SDA==4 && DISPLAY_SCL==15 && DISPLAY_RESET==16);
-#elif defined(FORM8_TLORA_V1_3)
+#if defined(FORM8_TLORA_V1_3)
   assert(RADIO_RESET==14 && DISPLAY_SDA==21 && DISPLAY_SCL==22 && DISPLAY_RESET==-1);
 #else
   assert(RADIO_RESET==23 && DISPLAY_SDA==21 && DISPLAY_SCL==22 && DISPLAY_RESET==-1);

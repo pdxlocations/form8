@@ -21,9 +21,8 @@ targets = [
     ('FORM8_HELTEC_V4', 'FORM8_HELTEC_V4_KCT8103L'), ('FORM8_XIAO_S3',),
     ('FORM8_TLORA_T3_S3',), ('FORM8_TLORA_T3_S3', 'FORM8_RADIO_SX1276'), ('FORM8_TBEAM_BPF',),
     ('FORM8_TBEAM','FORM8_RADIO_SX1276'), ('FORM8_TBEAM',),
-    ('FORM8_TLORA','FORM8_TLORA_V1','FORM8_RADIO_SX1276'),
     ('FORM8_TLORA','FORM8_TLORA_V1_3','FORM8_RADIO_SX1276'),
-    ('FORM8_TLORA','FORM8_RADIO_SX1276')
+    ('FORM8_TLORA','FORM8_TLORA_V2_1_16','FORM8_RADIO_SX1276'),
 ]
 with tempfile.TemporaryDirectory(prefix='form8-boards-') as directory:
     for index, flags in enumerate(targets):

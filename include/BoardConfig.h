@@ -62,24 +62,20 @@ constexpr int RADIO_IRQ=33,RADIO_BUSY=32;
 constexpr const char* BOARD_POWER_NOTE="AXP192/AXP2101 power management; optional SSD1306 OLED on GPIO21/22.";
 #elif defined(FORM8_TLORA)
 #define FORM8_HAS_OLED
-constexpr int RADIO_SCK=5,RADIO_MISO=19,RADIO_MOSI=27,RADIO_CS=18,RADIO_IRQ=26,RADIO_BUSY=33;
-constexpr int DISPLAY_POWER=-1;
-constexpr const char* BOARD_POWER_NOTE="";
-#if defined(FORM8_TLORA_V1)
-constexpr const char* BOARD_NAME="TTGO T-LoRa V1 (ESP32 / SX1276)";
-constexpr int RADIO_RESET=14,DISPLAY_SDA=4,DISPLAY_SCL=15,DISPLAY_RESET=16;
-#else
 #define FORM8_HAS_BATTERY
+constexpr int RADIO_SCK=5,RADIO_MISO=19,RADIO_MOSI=27,RADIO_CS=18,RADIO_IRQ=26;
+constexpr int DISPLAY_POWER=-1,DISPLAY_SDA=21,DISPLAY_SCL=22,DISPLAY_RESET=-1;
 constexpr int BATTERY_ADC_PIN=35,BATTERY_CTRL_PIN=-1,BATTERY_ENABLE_LEVEL=-1;
 constexpr unsigned BATTERY_RATIO_NUM=2,BATTERY_RATIO_DEN=1;
-constexpr int DISPLAY_SDA=21,DISPLAY_SCL=22,DISPLAY_RESET=-1;
+constexpr const char* BOARD_POWER_NOTE="";
 #if defined(FORM8_TLORA_V1_3)
 constexpr const char* BOARD_NAME="LILYGO T-LoRa T3 V1.3 (ESP32 / SX1276)";
-constexpr int RADIO_RESET=14;
+constexpr int RADIO_RESET=14,RADIO_BUSY=33;
+#elif defined(FORM8_TLORA_V2_1_16)
+constexpr const char* BOARD_NAME="LILYGO T-LoRa V2.1-1.6 (ESP32 / SX1276)";
+constexpr int RADIO_RESET=23,RADIO_BUSY=33;
 #else
-constexpr const char* BOARD_NAME="LILYGO LoRa32 V2.1 / T3 V1.6 (ESP32 / SX1276)";
-constexpr int RADIO_RESET=23;
-#endif
+#error Select a supported T-LoRa revision
 #endif
 #elif defined(FORM8_TBEAM_BPF)
 #define FORM8_HAS_GPS
