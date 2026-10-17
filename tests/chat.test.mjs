@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {validateChatText,utf8,chatTimeline,chatRadioStatus,chatReactionGroups} from '../web/model.js';
+import {validateChatText,utf8,chatTimeline,chatTimelinePage,chatRadioStatus,chatReactionGroups} from '../web/model.js';
 
 test('chat uses a 200-byte UTF-8 limit, including multi-codepoint emoji',()=>{
   assert.equal(validateChatText('a'.repeat(200)).length,200);
@@ -22,6 +22,17 @@ test('chat replies retain their parent; only the newest 30 text messages are ret
   const messages=Array.from({length:40},(_,i)=>event(String(i),{parent:i?'0':undefined},i));
   const result=chatTimeline(messages.reverse());assert.equal(result.length,30);
   assert.equal(result[0].id,'10');assert.equal(result[29].parent,'0');
+});
+test('chat history pages older messages and exposes every retained text ID',()=>{
+  const messages=Array.from({length:65},(_,i)=>event(String(i),{},i));
+  const latest=chatTimelinePage(messages);
+  assert.equal(latest.messages.length,30);assert.equal(latest.messages[0].id,'35');assert.equal(latest.hasOlder,true);
+  assert.equal(latest.allMessages.length,65);assert.deepEqual(latest.allMessages[0],{id:'0',origin:'self'});
+  const older=chatTimelinePage(messages,latest.messages[0].id);
+  assert.equal(older.messages.length,30);assert.equal(older.messages[0].id,'5');assert.equal(older.messages[29].id,'34');assert.equal(older.hasOlder,true);
+  const oldest=chatTimelinePage(messages,older.messages[0].id);
+  assert.deepEqual(oldest.messages.map(message=>message.id),['0','1','2','3','4']);assert.equal(oldest.hasOlder,false);
+  assert.throws(()=>chatTimelinePage(messages,'missing'),/cursor not found/);
 });
 test('radio ACK labels resolve peers and never treat a local save as a remote ACK',()=>{
   assert.equal(chatRadioStatus({origin:'self',retrying:true,receipts:[{id:'self'}]},[],'self'),'Awaiting radio ACK');

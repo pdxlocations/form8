@@ -26,16 +26,24 @@ export function chatReactionGroups(message,self) {
       status:mine?(mine.acked?'Your reaction: radio ACK':mine.retrying?'Your reaction: awaiting radio ACK':'Your reaction: no radio ACK'):''};
   }).filter(group=>group.count);
 }
-export function chatTimeline(events) {
+function chatTimelineRows(events) {
   const reactions=new Map();
   for(const event of events)if(event.body.type==='chat-reaction'){
     const key=`${event.meta.origin}:${event.body.target}:${event.body.emoji}`,previous=reactions.get(key);
     if(!previous || ((event.body.sequence-previous.body.sequence)|0)>0)reactions.set(key,event);
   }
-  return events.filter(event=>event.body.type==='chat-message').sort((a,b)=>a.meta.order-b.meta.order).slice(-30).map(event=>({
+  return events.filter(event=>event.body.type==='chat-message').sort((a,b)=>a.meta.order-b.meta.order).map(event=>({
     ...event.body,...event.meta,reactions:[...reactions.values()].filter(reaction=>reaction.body.target===event.meta.id && reaction.body.active)
       .map(reaction=>({origin:reaction.meta.origin,callsign:reaction.body.sender,emoji:reaction.body.emoji,acked:!!reaction.meta.receipts?.length,retrying:!!reaction.meta.retrying}))
   }));
+}
+export function chatTimeline(events) {return chatTimelineRows(events).slice(-30);}
+export function chatTimelinePage(events,beforeId='') {
+  const timeline=chatTimelineRows(events);
+  let end=timeline.length;
+  if(beforeId){end=timeline.findIndex(message=>message.id===beforeId);if(end<0)throw new Error('Chat cursor not found in this incident history');}
+  const start=Math.max(0,end-30);
+  return {messages:timeline.slice(start,end),hasOlder:start>0,allMessages:timeline.map(({id,origin})=>({id,origin}))};
 }
 export function numberUntitledDrafts(drafts,counter=0) {
   const untitled=drafts.filter(draft=>!draft.form.subject?.trim());

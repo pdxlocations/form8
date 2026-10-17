@@ -52,6 +52,16 @@ test('concurrent refresh callers await the same update',async()=>{
   assert.equal(h.calls.filter(c=>c==='status').length,1);
 });
 
+test('chat loads for a new incident without waiting for the prior incident request',async()=>{
+  const h=harness(),source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8'),loads=[];
+  h.context.refreshChatMessages=()=>new Promise(resolve=>loads.push({incident:vm.runInContext('status.incident',h.context),resolve}));
+  vm.runInContext("status={node:'radio',incident:'old'};"+source.slice(source.indexOf('const chatLoading=new Map();'),source.indexOf('async function refreshChatMessages()')),h.context);
+  const oldLoad=vm.runInContext('loadChatMessages()',h.context);vm.runInContext("status.incident='new'",h.context);
+  const newLoad=vm.runInContext('loadChatMessages()',h.context);
+  assert.deepEqual(loads.map(load=>load.incident),['old','new']);
+  loads[1].resolve();loads[0].resolve();await Promise.all([oldLoad,newLoad]);
+});
+
 test('time sync runs on first connection, reconnection, radio switch and reboot, not every poll',async()=>{
   const h=harness(),syncs=()=>h.calls.filter(call=>call?.path==='time');
   await h.poll();assert.equal(syncs().length,1);

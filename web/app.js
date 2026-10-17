@@ -176,7 +176,7 @@ $('#phone-location').onclick=run(async()=>{
   }
 });
 $('#clear-location').onclick=run(async()=>{locationData=null;form.elements.lat.value='';form.elements.lon.value='';counts();await saveDraft();});
-let chatReply=null, chatIncident='', chatSubmission=null, chatRendered='', chatSending=false, chatVersion='', chatMessages=[];
+let chatReply=null, chatIncident='', chatSubmission=null, chatRendered='', chatSending=false, chatVersion='', chatMessages=[],chatAllMessages=[],chatHasOlder=false;
 const reactionSubmissions=new Map(),reactionBusy=new Set();
 function chatControls(){
   const length=utf8($('#chat-text').value).length;
@@ -191,8 +191,9 @@ function chatControls(){
   $('#chat-reply-label').textContent=chatReply?`Reply to ${chatReply.sender}: ${chatReply.text}`:'';
 }
 function resetChat(){
-  chatReply=null;chatRendered='';chatVersion='';chatMessages=[];chatSubmission=null;reactionSubmissions.clear();
+  chatReply=null;chatRendered='';chatVersion='';chatMessages=[];chatAllMessages=[];chatHasOlder=false;chatSubmission=null;reactionSubmissions.clear();
   setNavBadge('chat',0,'unread texts');
+  $('#chat-load-older').hidden=true;
   $('#chat-list').replaceChildren();
 }
 $('#chat-text').addEventListener('input',()=>{
@@ -237,10 +238,12 @@ function restoreChatScroll(saved){
   window.scrollTo(0,saved.scrollY);
 }
 $('#chat-oldest').onclick=()=>$('#chat-list').lastElementChild?.scrollIntoView({block:'end',behavior:'smooth'});
-let chatLoading=null;
+const chatLoading=new Map();
 function loadChatMessages(){
-  if(chatLoading)return chatLoading;
-  chatLoading=refreshChatMessages().finally(()=>{chatLoading=null;});return chatLoading;
+  const key=`${status?.node||''}:${status?.incident||''}`;
+  if(chatLoading.has(key))return chatLoading.get(key);
+  const pending=refreshChatMessages().finally(()=>{if(chatLoading.get(key)===pending)chatLoading.delete(key);});
+  chatLoading.set(key,pending);return pending;
 }
 async function refreshChatMessages(){
   const incident=status?.incident,node=status?.node;
@@ -250,17 +253,26 @@ async function refreshChatMessages(){
   }
   const result=await api(`chat${chatVersion?`?since=${encodeURIComponent(chatVersion)}`:''}`);
   if(status?.node!==node || status?.incident!==incident || result.incident!==incident)return;
-  if(result.unchanged)result.messages=chatMessages;
-  else {chatMessages=result.messages;chatVersion=result.version||'';}
-  updateChatBadge(result.messages);
+  if(result.unchanged){result.messages=chatMessages;result.allMessages=chatAllMessages;result.hasOlder=chatHasOlder;}
+  else {
+    const merged=new Map([...chatMessages,...result.messages].map(message=>[message.id,message]));
+    chatMessages=[...merged.values()].sort((a,b)=>a.order-b.order);
+    chatAllMessages=result.allMessages||result.messages;chatHasOlder=!!result.hasOlder;chatVersion=result.version||'';
+  }
+  updateChatBadge(result.allMessages||chatAllMessages);
   if($('#chat').hidden)return;
-  const signature=JSON.stringify([result.messages,status.node,status.peers]);
+  renderChatMessages();
+}
+function renderChatMessages(){
+  if($('#chat').hidden)return;
+  const signature=JSON.stringify([chatMessages,status.node,status.peers]);
   if(signature===chatRendered)return;
   chatRendered=signature;
+  $('#chat-load-older').hidden=!chatHasOlder;
   const list=$('#chat-list'),savedScroll=captureChatScroll();
   const opened=new Set([...list.querySelectorAll('details[open]')].map(detail=>detail.dataset.message));
   list.replaceChildren();
-  for(const message of [...result.messages].reverse()){
+  for(const message of [...chatMessages].reverse()){
     const item=text('article','',`chat-message${message.origin===status.node?' chat-own':''}`);item.dataset.message=message.id;
     const heading=text('div','','chat-heading'),date=new Date(message.sentAt*1000);
     heading.append(text('strong',message.sender),text('span',message.sentAt>=1577836800?date.toLocaleString():'Time not synchronized','muted'));item.append(heading);
@@ -283,9 +295,20 @@ async function refreshChatMessages(){
     footer.append(actions,text('p',chatRadioStatus(message,status.peers,status.node),'chat-radio-ack'));
     item.append(footer);list.append(item);
   }
-  if(!result.messages.length)list.append(text('p','No chat messages on this radio yet.','muted'));
+  if(!chatMessages.length)list.append(text('p','No chat messages on this radio yet.','muted'));
   restoreChatScroll(savedScroll);
 }
+async function loadOlderChatMessages(){
+  if(!chatHasOlder||!chatMessages.length)return;
+  const node=status?.node,incident=status?.incident,before=chatMessages[0].id;
+  const result=await api(`chat?before=${encodeURIComponent(before)}`);
+  if(status?.node!==node || status?.incident!==incident || result.incident!==incident)return;
+  const merged=new Map([...result.messages,...chatMessages].map(message=>[message.id,message]));
+  chatMessages=[...merged.values()].sort((a,b)=>a.order-b.order);
+  chatAllMessages=result.allMessages||chatAllMessages;chatHasOlder=!!result.hasOlder;chatVersion=result.version||chatVersion;
+  updateChatBadge(chatAllMessages);chatRendered='';renderChatMessages();
+}
+$('#chat-load-older').onclick=run(loadOlderChatMessages);
 $('#chat-form').onsubmit=run(async event=>{
   event.preventDefault();validateChatText($('#chat-text').value);chatControls();
   if($('#chat-send').disabled)throw new Error('Connect, join an incident, and review the chat destination before sending.');

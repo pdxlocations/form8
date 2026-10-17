@@ -39,6 +39,13 @@ void recoverChat(){
   for(const auto& item:chatIds(false))chatOrder=std::max(chatOrder,item.order);
 }
 bool chatHave(const Id& id){return fsReady && LittleFS.exists(chatPath(id));}
+bool chatEvictable(const ChatIndex& item){
+  JsonDocument m;if(!readJson(chatPath(item.id),m))return false;
+  if(parse64(m["origin"]|"")!=nodeId)return true;
+  const String self=hex64(nodeId);
+  for(JsonObjectConst receipt:m["receipts"].as<JsonArrayConst>())if(String(receipt["id"]|"")!=self)return true;
+  return false;
+}
 bool loadChat(const Id& id,Record& r){
   JsonDocument m;if(!fsReady || !readJson(chatPath(id),m))return false;
   r={id,parse64(m["incident"]|""),parse64(m["origin"]|""),0,m["hash"].as<uint32_t>(),chatString(m["body"]),Kind::Chat};
@@ -48,16 +55,17 @@ bool saveChat(const Record& r){
   if(!fsReady || r.kind!=Kind::Chat || r.incident!=active || emptyId(r.id) || r.body.size()>768 || crc32(r.body)!=r.hash)return false;
   JsonDocument old;if(readJson(chatPath(r.id),old))return old["hash"].as<uint32_t>()==r.hash && parse64(old["origin"]|"")==r.origin && parse64(old["incident"]|"")==r.incident;
   JsonDocument body;if(deserializeJson(body,r.body) || !validChat(body))return false;
+  auto records=chatIds(false);ChatIndex evicted{};bool needsEviction=records.size()>=CHAT_RECORDS;
+  if(needsEviction){auto candidate=std::find_if(records.begin(),records.end(),chatEvictable);if(candidate==records.end())return false;evicted=*candidate;}
   if(LittleFS.totalBytes()-LittleFS.usedBytes()<STORAGE_RESERVE+r.body.size()+4096)return false;
   JsonDocument m;m["id"]=hexId(r.id);m["incident"]=hex64(r.incident);m["origin"]=hex64(r.origin);m["hash"]=r.hash;
   m["body"]=r.body;m["order"]=++chatOrder;m["attempts"]=0;m["receipts"].to<JsonArray>();
   if(!writeJson(chatPath(r.id),m))return false;
   ++chatRevision;
   // Commit before pruning, so a failed write never destroys a previous message.
-  auto records=chatIds(false);
-  for(size_t i=0;i+CHAT_RECORDS<records.size();++i){
-    if(mesh)mesh->cancelPublish(records[i].id,true);
-    chatRetries.cancel(records[i].id);LittleFS.remove(chatPath(records[i].id));
+  if(needsEviction){
+    if(mesh)mesh->cancelPublish(evicted.id,true);
+    chatRetries.cancel(evicted.id);LittleFS.remove(chatPath(evicted.id));
   }
   return true;
 }
@@ -82,7 +90,8 @@ void chatApi(){
   apiOn("/api/chat",HTTP_GET,[]{
     JsonDocument out;out["incident"]=hex64(active);
     const String version=String(bootSession,HEX)+"-"+String(chatRevision);out["version"]=version;
-    if(apiArg("since")==version){out["unchanged"]=true;respond(200,out);return;}
+    const String before=apiArg("before");
+    if(before.isEmpty() && apiArg("since")==version){out["unchanged"]=true;respond(200,out);return;}
     JsonArray messages=out["messages"].to<JsonArray>();auto records=chatIds();
     // Only keep the newest 30 text messages in this HTTP response.
     std::vector<Id> texts;
@@ -99,8 +108,17 @@ void chatApi(){
         }if(!found)reactions.push_back(next);
       }
     }
-    const size_t start=texts.size()>30?texts.size()-30:0;
-    for(size_t i=start;i<texts.size();++i){JsonDocument m,body;if(!readJson(chatPath(texts[i]),m)||deserializeJson(body,chatString(m["body"])))continue;
+    size_t end=texts.size();
+    if(!before.isEmpty()){
+      if(!parseHex(before,32)){error(400,"Invalid chat history cursor");return;}
+      auto cursor=std::find(texts.begin(),texts.end(),parseId(before));
+      if(cursor==texts.end()){error(404,"Chat history cursor not found in this incident");return;}
+      end=static_cast<size_t>(cursor-texts.begin());
+    }
+    const size_t start=end>30?end-30:0;out["hasOlder"]=start>0;
+    JsonArray all=out["allMessages"].to<JsonArray>();
+    for(const Id& id:texts){JsonDocument m;if(!readJson(chatPath(id),m))continue;JsonObject ref=all.add<JsonObject>();ref["id"]=m["id"];ref["origin"]=m["origin"];}
+    for(size_t i=start;i<end;++i){JsonDocument m,body;if(!readJson(chatPath(texts[i]),m)||deserializeJson(body,chatString(m["body"])))continue;
       JsonObject message=messages.add<JsonObject>();message["id"]=m["id"];message["origin"]=m["origin"];message["order"]=m["order"];
       message["sender"]=body["sender"];message["text"]=body["text"];message["sentAt"]=body["sentAt"];message["parent"]=body["parent"];
       message["receipts"]=m["receipts"];message["attempts"]=m["attempts"];message["retrying"]=chatRetries.active(texts[i]);
