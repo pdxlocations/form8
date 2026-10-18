@@ -14,7 +14,7 @@ int main(int argc,char** argv){
   displayReady()=true;auto& d=stationDisplay();
   StationScreen station;station.callsign="NET-A";station.incident="Practice drill";station.online=3;station.frequency=919.5;station.radioState="RXING";station.batteryMv=3920;
   showStationStatus("form8-abcd","12345678",1,2,5,"NET-B",station);assert(d.overflow==0);d.save(std::string(argv[1])+"/connected.pbm");
-  for(const auto& label:d.labels)assert(label.text!="0.1.4");
+  for(const auto& label:d.labels)assert(label.text!="v0.1.4");
   unsigned frame=d.frames;showStationStatus("form8-abcd","12345678",1,2,5,"NET-B",station);assert(d.frames==frame);
   station.online=2;showStationStatus("form8-abcd","12345678",1,2,5,"NET-B",station);assert(d.frames==frame+1);
   station.callsign="WWWWWWWWWWWWWWWW";station.incident=String(64,'W');station.online=29;station.radioState="RF PAUSED";station.batteryMv=3400;
@@ -23,7 +23,7 @@ int main(int argc,char** argv){
   showStationStatus("form8-abcd","12345678",1,0,0,"",station);assert(d.overflow==0);d.save(std::string(argv[1])+"/empty.pbm");
   showStationStatus("form8-abcd","12345678",0,0,0,"",station);assert(d.overflow==0);d.save(std::string(argv[1])+"/credentials.pbm");
   assert(d.labels[0].text=="form8-abcd" && d.labels[0].y==0);
-  assert(d.labels[1].text=="0.1.4" && d.labels[1].y==0);
+  assert(d.labels[1].text=="v0.1.4" && d.labels[1].y==0);
   assert(d.labels[1].x==int(d.getStringWidth(d.labels[0].text))+5);
   assert(d.labels[1].x+int(d.getStringWidth(d.labels[1].text))<=100);
   station.radioState="RXING";showStationStatus("form8-abcd","12345678",0,0,0,"",station);assert(d.overflow==0);d.save(std::string(argv[1])+"/credentials-rxing.pbm");

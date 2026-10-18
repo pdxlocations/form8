@@ -21,19 +21,19 @@ Match the **SoftDevice version**, not the bootloader version. The 6.1.1 build wo
 
 ## Screenshots
 
-Example screens from the local simulator; these do not demonstrate an RF connection.
+Example screens from the local simulator, using sample messages, callsigns, receipts, and positions. These do not demonstrate an RF connection.
 
 ### Compose a form
 
-![Form8 Compose screen with a sample supply request](docs/screenshots/compose.png)
+![Form8 Compose screen with numbered form fields, a sample supply request, and collapsed approval details](docs/screenshots/compose.png)
 
 ### Traffic
 
-![Form8 Traffic tab listing messages with From and To fields and radio acknowledgment status](docs/screenshots/traffic-list.png)
+![Form8 Traffic tab with clickable subjects, From and To fields, message status, and archive and remove controls](docs/screenshots/traffic-list.png)
 
 ### Read and acknowledge a message
 
-![Form8 message reader with one color-coded Station, Radio, and Human receipt matrix](docs/screenshots/traffic.png)
+![Form8 message reader with bordered form sections, reply and acknowledgment controls, and a color-coded receipt matrix](docs/screenshots/traffic.png)
 
 ### Incident chat
 
@@ -41,15 +41,15 @@ Example screens from the local simulator; these do not demonstrate an RF connect
 
 ### Incidents
 
-![Form8 Incidents tab for creating, joining, and switching between nearby and retained incidents](docs/screenshots/incidents.png)
+![Form8 Incidents tab with separate incident names and IDs, an Active badge, and equal-width action buttons](docs/screenshots/incidents.png)
 
 ### Nodes
 
-![Form8 Nodes tab showing incident membership, last-heard time, RSSI, and SNR](docs/screenshots/nodes.png)
+![Form8 Nodes tab showing incident membership, last-heard time, RSSI, SNR, and Request ID for an unknown node](docs/screenshots/nodes.png)
 
 ### Incident map
 
-![Form8 map with simulated incident stations and USGS topo tiles](docs/screenshots/map.png)
+![Form8 map with sample incident stations, USGS topo tiles, and offline map controls](docs/screenshots/map.png)
 
 ### Device archive
 
@@ -57,4 +57,4 @@ Example screens from the local simulator; these do not demonstrate an RF connect
 
 ### Station and radio settings
 
-![Form8 Settings tab with appearance, callsign, modem settings, transmit and relay controls, and position sharing](docs/screenshots/settings.png)
+![Form8 Settings tab with appearance, callsign, modem settings, TX power range, transmission and relay checkboxes, and position sharing](docs/screenshots/settings.png)

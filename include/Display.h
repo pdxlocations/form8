@@ -58,7 +58,7 @@ inline void showStationStatus(const String& ssid,const String& password,uint8_t 
   if(clients){
     display.drawString(0,0,displayFit(display,station.callsign.isEmpty()?"Set callsign":station.callsign,100));
   }else{
-    const String version=FORM8_FIRMWARE_VERSION;
+    const String version=String("v")+FORM8_FIRMWARE_VERSION;
     const int versionWidth=display.getStringWidth(version);
     const String label=displayFit(display,ssid,100-versionWidth-5);
     display.drawString(0,0,label);
