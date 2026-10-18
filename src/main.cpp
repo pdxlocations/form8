@@ -368,6 +368,13 @@ void api() {
     relayEnabled=d["relayEnabled"]|relayEnabled;txEnabled=d["txEnabled"]|txEnabled;paused=d["paused"]|paused;saveConfig();radio.standby();initRadio();
     JsonDocument out;out["saved"]=true;out["radioReady"]=radioReady;respond(200,out);
   });
+  apiOn("/api/nodes/request-id",HTTP_POST,[]{
+    JsonDocument d;if(!input(d))return;String id=d["id"]|"";
+    if(!parseHex(id,16) || !parse64(id) || parse64(id)==nodeId){error(400,"Choose another valid node ID");return;}
+    if(!radioReady || !txEnabled || paused || !validCall(callsign)){error(409,"Set Radio transmission to On and save a callsign before requesting an ID");return;}
+    if(!mesh->requestIdentity(parse64(id),millis())){error(429,"Request not queued. Wait 30 seconds before retrying this node, or wait for queue space");return;}
+    JsonDocument out;out["queued"]=true;respond(200,out);
+  });
   apiOn("/api/incident/announce",HTTP_POST,[]{
     if(!active){error(409,"Join an incident before announcing it");return;}
     if(!radioReady || !txEnabled || paused || !validCall(callsign)){error(409,"Enable radio transmission, unpause, and save a callsign before announcing");return;}
@@ -556,6 +563,7 @@ void setup() {
     if(!saved)Serial.printf("Received form save failed: %s\n",persistError);
     return saved;
   };
+  mesh->identityRequested=[](){return radioReady && txEnabled && !paused && validCall(callsign) && queueAnnouncement(millis());};
   mesh->hello=onHello;mesh->position=onPosition;mesh->receipt=[](const Id& id,uint64_t p,uint32_t hash,bool human){recordReceipt(id,p,hash,human);};
   mesh->chatContains=[](const Id& id,uint32_t hash){JsonDocument m;return readJson(chatPath(id),m) && m["hash"].as<uint32_t>()==hash && parse64(m["incident"]|"")==active;};
   mesh->chatPersist=saveChat;mesh->chatReceipt=chatReceipt;

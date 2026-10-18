@@ -10,9 +10,15 @@ function fail_request(string $message, int $status = 502): void {
 }
 
 function allowed_asset(array $asset): bool {
-    return ($asset['name'] ?? '') === 'manifest.json'
-        || ($asset['name'] ?? '') === 'SHA256SUMS-NRF52'
-        || preg_match('/^form8-[a-z0-9-]+\.(?:bin|uf2|hex)$/D', $asset['name'] ?? '') === 1;
+    return ($asset['name'] ?? '') === 'form8-release.zip';
+}
+
+function member_path(string $name): ?string {
+    if ($name === 'manifest.json') return 'esp32/manifest.json';
+    if ($name === 'SHA256SUMS-NRF52') return 'nrf52/SHA256SUMS-NRF52';
+    if (preg_match('/^form8-[a-z0-9-]+\.bin$/D', $name) === 1) return 'esp32/' . $name;
+    if (preg_match('/^form8-[a-z0-9-]+\.(?:uf2|hex)$/D', $name) === 1) return 'nrf52/' . $name;
+    return null;
 }
 
 function github_url(string $url, bool $asset): bool {
@@ -24,45 +30,57 @@ function github_url(string $url, bool $asset): bool {
         && ($parts['path'] ?? '') === '/repos/' . FORM8_REPOSITORY . '/releases';
 }
 
-function fetch_github(string $url, bool $asset = false): string {
+function github_file(string $url, bool $asset = false): string {
     if (!github_url($url, $asset)) throw new RuntimeException('Invalid GitHub download URL.');
-    if (!function_exists('curl_init')) throw new RuntimeException('Enable the PHP cURL extension on this host.');
     $cacheDir = sys_get_temp_dir() . '/form8-flasher-' . substr(hash('sha256', __DIR__), 0, 16);
     if (!is_dir($cacheDir) && !@mkdir($cacheDir, 0700, true) && !is_dir($cacheDir)) throw new RuntimeException('Cannot create the download cache.');
     $cache = $cacheDir . '/' . hash('sha256', $url);
-    if (is_file($cache) && time() - filemtime($cache) < FORM8_CACHE_SECONDS) {
-        $cached = file_get_contents($cache);
-        if ($cached !== false) return $cached;
-    }
-    $body = '';
-    $curl = curl_init($url);
-    curl_setopt_array($curl, [
-        CURLOPT_USERAGENT => 'Form8-WebFlasher',
-        CURLOPT_HTTPHEADER => ['Accept: ' . ($asset ? 'application/octet-stream' : 'application/vnd.github+json')],
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_MAXREDIRS => 5,
-        CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
-        CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
-        CURLOPT_CONNECTTIMEOUT => 15,
-        CURLOPT_TIMEOUT => 120,
-        CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use (&$body): int {
-            if (strlen($body) + strlen($chunk) > FORM8_MAX_DOWNLOAD) return 0;
-            $body .= $chunk;
-            return strlen($chunk);
-        },
-    ]);
-    $ok = curl_exec($curl);
-    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-    curl_close($curl);
-    if ($ok === false || $status !== 200) {
-        if ($status === 403 || $status === 429) throw new RuntimeException('GitHub is limiting downloads. Please try again in a few minutes.');
-        throw new RuntimeException('GitHub download failed. Try again shortly (HTTP ' . $status . ').');
-    }
+    $limit = $asset ? FORM8_MAX_DOWNLOAD : 2 * 1024 * 1024;
+    if (is_file($cache) && time() - filemtime($cache) < FORM8_CACHE_SECONDS && filesize($cache) <= $limit) return $cache;
+    if (!function_exists('curl_init')) throw new RuntimeException('Enable the PHP cURL extension on this host.');
     $temporary = tempnam($cacheDir, 'download-');
-    if ($temporary !== false) {
-        if (file_put_contents($temporary, $body) !== false) @rename($temporary, $cache);
+    if ($temporary === false) throw new RuntimeException('Cannot create the download cache.');
+    $output = fopen($temporary, 'wb');
+    if ($output === false) { @unlink($temporary); throw new RuntimeException('Cannot write the download cache.'); }
+    $curl = curl_init($url);
+    $received = 0;
+    try {
+        curl_setopt_array($curl, [
+            CURLOPT_USERAGENT => 'Form8-WebFlasher',
+            CURLOPT_HTTPHEADER => ['Accept: ' . ($asset ? 'application/octet-stream' : 'application/vnd.github+json')],
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT => 120,
+            CURLOPT_WRITEFUNCTION => static function ($handle, string $chunk) use ($output, &$received, $limit): int {
+                if ($received + strlen($chunk) > $limit) return 0;
+                $written = fwrite($output, $chunk);
+                if ($written === false) return 0;
+                $received += $written;
+                return $written;
+            },
+        ]);
+        $ok = curl_exec($curl);
+        $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        if ($ok === false || $status !== 200) {
+            if ($status === 403 || $status === 429) throw new RuntimeException('GitHub is limiting downloads. Please try again in a few minutes.');
+            throw new RuntimeException('GitHub download failed. Try again shortly (HTTP ' . $status . ').');
+        }
+        fclose($output); $output = null;
+        if (!rename($temporary, $cache)) throw new RuntimeException('Cannot save the download cache.');
+        return $cache;
+    } finally {
+        curl_close($curl);
+        if (is_resource($output)) fclose($output);
         if (is_file($temporary)) @unlink($temporary);
     }
+}
+
+function fetch_github(string $url): string {
+    $body = file_get_contents(github_file($url));
+    if ($body === false) throw new RuntimeException('Cannot read cached GitHub data.');
     return $body;
 }
 
@@ -72,12 +90,47 @@ function releases(): array {
     return array_values(array_filter($data, static fn($release) => is_array($release) && empty($release['draft'])));
 }
 
+function open_bundle(string $path): ZipArchive {
+    if (!class_exists('ZipArchive')) throw new RuntimeException('Enable the PHP ZIP extension on this host to read foldered release bundles.');
+    $zip = new ZipArchive();
+    if ($zip->open($path, ZipArchive::RDONLY) !== true) throw new RuntimeException('Cannot open the release ZIP. Refresh and try again.');
+    return $zip;
+}
+
+function bundle_assets(ZipArchive $zip): array {
+    if ($zip->numFiles > 512) throw new RuntimeException('Release ZIP contains too many entries.');
+    $assets = []; $seen = [];
+    for ($i = 0; $i < $zip->numFiles; ++$i) {
+        $entry = $zip->statIndex($i);
+        if ($entry === false) throw new RuntimeException('Cannot read the release ZIP catalog.');
+        $path = $entry['name']; $name = basename($path);
+        // Exact whitelisted paths only. Never extract ZIP entries to the web host.
+        if (member_path($name) !== $path) continue;
+        if (isset($seen[$name])) throw new RuntimeException('Release ZIP contains duplicate firmware entries.');
+        $seen[$name] = true;
+        $limit = str_ends_with($name, '.json') || $name === 'SHA256SUMS-NRF52' ? 1024 * 1024 : FORM8_MAX_IMAGE;
+        if ($entry['size'] <= 0 || $entry['size'] > $limit) throw new RuntimeException('Release ZIP entry exceeds the firmware size limit.');
+        $assets[] = ['name' => $name, 'bytes' => $entry['size']];
+    }
+    if (!$assets) throw new RuntimeException('Release ZIP has no firmware in esp32/ or nrf52/.');
+    return $assets;
+}
+
+function bundle_member(ZipArchive $zip, string $name, array $assets): string {
+    $matches = array_values(array_filter($assets, static fn($asset) => $asset['name'] === $name));
+    $path = member_path($name);
+    if (!$matches || $path === null) throw new RuntimeException('This release ZIP does not contain that firmware file.');
+    $body = $zip->getFromName($path, $matches[0]['bytes'] + 1);
+    if ($body === false || strlen($body) !== $matches[0]['bytes']) throw new RuntimeException('Cannot read the firmware from the release ZIP.');
+    return $body;
+}
+
 if (defined('FORM8_API_LIBRARY')) return;
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store');
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') fail_request('Only GET requests are supported.', 405);
 $resource = $_GET['resource'] ?? '';
-if (!in_array($resource, ['releases', 'manifest', 'checksums', 'binary'], true)) fail_request('Unknown resource.', 400);
+if (!in_array($resource, ['releases', 'catalog', 'manifest', 'checksums', 'binary'], true)) fail_request('Unknown resource.', 400);
 if (isset($_GET['url'])) fail_request('Arbitrary URLs are not supported.', 400);
 try {
     $releases = releases();
@@ -95,15 +148,24 @@ try {
     if (!is_string($releaseId) || !ctype_digit($releaseId)) fail_request('Invalid release.', 400);
     $matches = array_values(array_filter($releases, static fn($item) => (string) $item['id'] === $releaseId));
     if (!$matches) fail_request('Release is no longer in the latest 20 releases. Refresh the list.', 404);
-    $name = $resource === 'manifest' ? 'manifest.json' : ($resource === 'checksums' ? 'SHA256SUMS-NRF52' : ($_GET['file'] ?? ''));
-    if (!is_string($name) || !allowed_asset(['name' => $name]) || ($resource === 'binary' && preg_match('/\.(?:bin|uf2|hex)$/D', $name) !== 1)) fail_request('Invalid asset.', 400);
-    $assets = array_values(array_filter($matches[0]['assets'] ?? [], static fn($item) => $item['name'] === $name));
-    if (!$assets) fail_request('This release does not contain that asset. Its build may still be running.', 404);
-    if (($assets[0]['size'] ?? 0) > FORM8_MAX_DOWNLOAD) fail_request('Asset exceeds the download limit.', 413);
-    $body = fetch_github($assets[0]['browser_download_url'], true);
-    header('Content-Type: ' . ($resource === 'manifest' ? 'application/json' : 'application/octet-stream'));
-    header('Content-Length: ' . strlen($body));
-    echo $body;
+    $archives = array_values(array_filter($matches[0]['assets'] ?? [], 'allowed_asset'));
+    if (count($archives) !== 1) fail_request('This release has no completed form8-release.zip bundle. Choose a newer release.', 404);
+    if (($archives[0]['size'] ?? 0) <= 0 || $archives[0]['size'] > FORM8_MAX_DOWNLOAD) fail_request('Release ZIP exceeds the download limit.', 413);
+    $zip = open_bundle(github_file($archives[0]['browser_download_url'], true));
+    try {
+        $assets = bundle_assets($zip);
+        if ($resource === 'catalog') {
+            header('Content-Type: application/json');
+            echo json_encode(['assets' => $assets], JSON_THROW_ON_ERROR);
+        } else {
+            $name = $resource === 'manifest' ? 'manifest.json' : ($resource === 'checksums' ? 'SHA256SUMS-NRF52' : ($_GET['file'] ?? ''));
+            if (!is_string($name) || member_path($name) === null || ($resource === 'binary' && preg_match('/\.(?:bin|uf2|hex)$/D', $name) !== 1)) fail_request('Invalid firmware file.', 400);
+            $body = bundle_member($zip, $name, $assets);
+            header('Content-Type: ' . ($resource === 'manifest' ? 'application/json' : 'application/octet-stream'));
+            header('Content-Length: ' . strlen($body));
+            echo $body;
+        }
+    } finally { $zip->close(); }
 } catch (Throwable $error) {
     error_log('Form8 webflasher: ' . $error->getMessage());
     fail_request($error instanceof RuntimeException ? $error->getMessage() : 'Cannot load GitHub release data. Please try again.');

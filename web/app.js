@@ -8,6 +8,7 @@ let messageNeighbors = {previous:null,next:null};
 let selectedForm = null, polling = null, settingsDirty = false, displayedRecord = '';
 let openRecord=null, openingForm=null;
 const resendingForms=new Set();
+const identityRequests=new Map();
 let formSubmitting=false;
 let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;
 const form = $('#form8');
@@ -364,9 +365,27 @@ function renderNodes() {
       const when=age===null?'':` · ${new Date(Date.now()-age).toLocaleString()}`;
       row.append(text('p',`${node.online?'Online':'Offline'} · Last heard ${ago}${when}`,'muted'));
       row.append(text('p',Number.isFinite(node.rssi)&&Number.isFinite(node.snr)?`RSSI ${node.rssi.toFixed(1)} dBm · SNR ${node.snr.toFixed(1)} dB · ${node.relayed?'Forwarded packet · Last hop':'Last hop'}`:'RSSI / SNR unavailable','muted'));
+      if(!node.callsign){
+        const request=identityRequests.get(`${status.node}/${node.id}`),remaining=request?Math.max(0,Math.ceil((30000-(Date.now()-request.at))/1000)):0;
+        const identify=button(request?.busy?'Requesting…':remaining?`Requested · retry in ${remaining}s`:'Request ID',()=>requestNodeIdentity(node.id));
+        identify.disabled=!!request?.busy || remaining>0 || status.companionConnected===false || !status.radioReady || !status.txEnabled || status.paused || !status.callsign;
+        identify.title='Ask this node to broadcast its callsign and incident. Requires updated firmware and radio transmission on at both ends.';
+        row.append(identify);
+      }
     }
     list.append(row);
   }
+}
+async function requestNodeIdentity(id){
+  const node=status?.node,key=`${node}/${id}`,existing=identityRequests.get(key);
+  if(existing && (existing.busy || Date.now()-existing.at<30000))return;
+  for(const [key,request] of identityRequests)if(!request.busy && Date.now()-request.at>=30000)identityRequests.delete(key);
+  const request={at:Date.now(),busy:true};identityRequests.set(key,request);renderNodes();
+  try{
+    await api('nodes/request-id',{id});request.busy=false;
+    feedback('ID request queued. Waiting for the node’s callsign announcement. Both radios need transmission on and updated firmware.');
+  }catch(error){identityRequests.delete(key);throw error;}
+  finally{if(status?.node===node)renderNodes();}
 }
 function poll() {
   if(polling)return polling;

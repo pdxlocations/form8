@@ -7,14 +7,14 @@ const buffer = new TextEncoder().encode('firmware image').buffer;
 const image = {file:'form8-heltec-v3.bin',kind:'app-only',flashOffset:'0x10000',bytes:buffer.byteLength,sha256:createHash('sha256').update(new Uint8Array(buffer)).digest('hex')};
 const target = {...image,environment:'heltec-v3',board:'Heltec V3',flashMiB:8};
 const factory = {...image,file:'form8-heltec-v3-factory.bin',kind:'factory',flashOffset:'0x0',erasesData:true};
-const release = {id:1,tag:'v1',publishedAt:'2026-01-01T00:00:00Z',assets:[{name:'manifest.json'},{name:image.file},{name:factory.file}]};
+const release = {id:1,tag:'v1',publishedAt:'2026-01-01T00:00:00Z',assets:[{name:'form8-release.zip'},{name:'manifest.json'},{name:image.file},{name:factory.file}]};
 
 test('flasher hides prereleases and unfinished releases and sorts by publication', () => {
   const preview = {...release,id:2,prerelease:true,publishedAt:'2026-02-01T00:00:00Z'};
   assert.deepEqual(availableReleases([preview,release,{...release,id:3,assets:[]}]).map(r=>r.id),[1]);
   assert.deepEqual(availableReleases([release,preview],true).map(r=>r.id),[2,1]);
 });
-test('older app-only releases remain usable for updates without inventing factory builds', () => {
+test('bundle manifests may offer app-only updates without inventing factory builds', () => {
   const [result] = validateTargets([target],release);
   assert.equal(result.file,image.file);
   assert.equal(result.factory,null);
@@ -60,10 +60,11 @@ test('original ESP32 builds select ESP32 in the installer while old releases ret
   }
 });
 
-test('nRF-only releases appear when UF2 and checksums are published', () => {
-  const nrf={...release,id:4,assets:[{name:'SHA256SUMS-NRF52'},{name:'form8-rak4631.uf2'}]};
-  assert.deepEqual(availableReleases([nrf]).map(r=>r.id),[4]);
-  assert.deepEqual(availableReleases([{...nrf,assets:nrf.assets.slice(1)}]),[]);
+test('only foldered release bundles appear; old loose-file builds are hidden', () => {
+  const old={...release,id:4,assets:[{name:'manifest.json'},{name:'SHA256SUMS-NRF52'},{name:'form8-rak4631.uf2'}]};
+  assert.deepEqual(availableReleases([old]),[]);
+  const bundled={...release,id:5,assets:[{name:'form8-release.zip'}]};
+  assert.deepEqual(availableReleases([old,bundled]).map(r=>r.id),[5]);
 });
 
 test('nRF downloads require a matching published asset, size and unique checksum', async () => {

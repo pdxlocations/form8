@@ -61,3 +61,9 @@ See [Radio traffic](Radio-Traffic) for the reduced synchronization and form retr
 **Radio setup → Radio transmission → On / Off** is the single control for all outgoing LoRa packets. Off stops messages, announcements, ACKs, position reports, and relays; receiving and local app access still work. Saved outgoing messages can resume when transmission is turned on. Save settings to apply the choice; it survives a restart. **Enable packet relaying** remains separate and defaults to off.
 
 Older firmware internally stores separate enable/pause flags. The new screen shows their effective state: a previously paused radio appears Off. Saving On clears the old pause override, so there is no second control to find. No nRF firmware update is needed for this UI change.
+
+### Resolve “Callsign unknown”
+
+Callsigns travel in station announcements at startup, after incident joining or radio reconfiguration, then every **60–65 minutes**. Hearing a form, relay, receipt, or other packet before its announcement can show a node with an unknown callsign. The Nodes tab tracks packet origin IDs; a relayed packet may refer to an origin that is no longer reachable.
+
+Press **Request ID** on that entry. The button immediately shows **Requesting…**, then a 30-second retry countdown. The addressed radio responds with its callsign and current incident, and the Nodes tab updates automatically. Requests work across incidents; you do not need to join the unknown node’s incident. Both ends need Radio transmission On and a saved callsign. The target and any intervening relays need firmware supporting ID requests; older firmware ignores them. An nRF radio can answer without a connected companion app. An unreachable/offline node will not answer. No automatic retries are sent, and nodes limit their replies to once per 30 seconds.

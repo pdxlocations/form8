@@ -28,7 +28,7 @@ Maximum frame length is 214 bytes. Form bodies are UTF-8 JSON with `type: net-fo
 
 Hello payload is JSON containing callsign, active incident name, and an optional numeric boot-session marker. The marker lets peers detect a restart even when the stable node ID and incident are unchanged; older publishers omit it and are treated as session zero. Inventory payload contains up to eight `(record ID:16, body CRC32:4)` entries for bodies actually retained by its publisher. A request references a missing record and checksum. Receipt/human acknowledgment reference a record and checksum and contain no payload. A node intentionally archiving/discarding retains a local record tombstone and therefore does not request that body again.
 
-Nodes forward valid new packets with decremented TTL. Data, inventories, requests and receipts must match the receiver's active incident. Hello advertisements are allowed across incidents so operators can discover and explicitly join them. Frames use a bounded 256-entry duplicate cache with a two-minute lifetime; payload fingerprints normalize TTL before comparison. This is a corruption/duplicate check, not identity authentication.
+Nodes forward valid new packets with decremented TTL. Data, inventories, requests and receipts must match the receiver's active incident. Hello advertisements and targeted ID requests are allowed across incidents so operators can discover and explicitly join them. Frames use a bounded 256-entry duplicate cache with a two-minute lifetime; payload fingerprints normalize TTL before comparison. This is a corruption/duplicate check, not identity authentication.
 
 ## Scheduling and repair
 
@@ -90,3 +90,9 @@ Scheduling constants are in `lib/Form8Mesh/src/TrafficSchedule.h` and `DeliveryR
 - Forms from previous incidents remain in storage but are neither advertised nor transmitted until that incident becomes active again.
 - Single-message archive/removal keeps compact delivery metadata up to the global record cap. Explicit whole-incident removal deletes that incident’s bodies, metadata, and chat, and leaves it first if active. This frees record slots; rejoining that incident can receive its traffic again.
 - There is no cryptographic authentication, encryption, replay protection or protection against a malicious node impersonating another callsign.
+
+### Targeted station identity requests
+
+Kind **10** is a single-frame identity request with exactly **8 payload bytes**: the requested node ID as an unsigned little-endian 64-bit integer, nonzero. The ordinary header, CRC, duplicate cache, and five-forward TTL apply. Incident may be zero; receiving/forwarding accepts it across incidents, like Hello. Record ID/hash are unused. The target stops forwarding the request and, if transmission is allowed and a callsign is configured, queues its ordinary Hello with its own active incident, callsign, and boot session. No body is stored and no receipt or unread count is generated.
+
+Local requests to the same node are limited to once per 30 seconds (bounded to 32 targets); successful replies are limited to once per 30 seconds per responder. Requests do not retry automatically. Older firmware drops kind 10, so the target and any required relays must be updated. Existing form/chat/receipt/Hello formats are unchanged. These requests and replies are unauthenticated, like other Form8 traffic.

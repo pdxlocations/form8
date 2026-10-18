@@ -160,3 +160,13 @@ test('Traffic puts newest saved forms first across pages and reader neighbors',a
  const selected=await h.api.request('forms?selected='+expected[20]);assert.equal(selected.offset,20);assert.equal(selected.previous,expected[19]);assert.equal(selected.next,expected[21]);
  h.api.connected=false;await h.api.restore(NODE);assert.deepEqual((await h.api.request('forms')).forms.map(m=>m.id),expected.slice(0,20));
 });
+
+test('Request ID reaches the radio without joining the unknown node incident or changing stored messages',async()=>{
+ const h=harness();await h.api.connect();const before=structuredClone(h.saved);h.calls.length=0;
+ await h.api.request('nodes/request-id',{id:PEER});assert.deepEqual(h.calls,[['requestIdentity',{id:PEER}]]);assert.deepEqual(h.saved,before);assert.equal(h.api.status.incident,INCIDENT);
+ await assert.rejects(h.api.request('nodes/request-id',{id:NODE}),/another valid node/);
+ await assert.rejects(h.api.request('nodes/request-id',{id:'../invalid'}),/another valid node/);
+ h.api.status.txEnabled=false;await assert.rejects(h.api.request('nodes/request-id',{id:PEER}),/transmission to On/);
+ h.api.status.txEnabled=true;h.api.rpc=async()=>{throw Error('Unknown operation');};await assert.rejects(h.api.request('nodes/request-id',{id:PEER}),/Update.*firmware.*Android/);
+ h.api.connected=false;await assert.rejects(h.api.request('nodes/request-id',{id:PEER}),/Connect the radio/);
+});

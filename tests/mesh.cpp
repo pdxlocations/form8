@@ -29,6 +29,46 @@ struct Node {
 };
 void exchange(Node& a,Node& b,uint32_t now){Frame f;while(a.mesh.next(now,f)){auto bytes=encode(f);b.mesh.receive(bytes.data(),bytes.size(),now,0);a.mesh.transmitted(f,now);}}
 int main(){
+  {
+  // ID requests cross incident boundaries, but only the addressed node replies.
+  Node identityA(101),identityRelay(102),identityB(103),identityOther(104);
+  identityA.mesh.setIncident(0);identityRelay.mesh.setIncident(77);identityB.mesh.setIncident(99);
+  int identified=0,otherIdentified=0,hellos=0;
+  identityB.mesh.identityRequested=[&](){++identified;return identityB.mesh.announce("callsign B",100);};
+  identityOther.mesh.identityRequested=[&](){++otherIdentified;return true;};
+  identityA.mesh.hello=[&](const Frame& f){assert(f.origin==103 && f.incident==99);++hellos;};
+  assert(!identityA.mesh.requestIdentity(0,0) && !identityA.mesh.requestIdentity(101,0));
+  assert(identityA.mesh.requestIdentity(103,100));
+  assert(!identityA.mesh.requestIdentity(103,101));
+  Frame identityFrame;assert(identityA.mesh.next(100,identityFrame));
+  assert(identityFrame.kind==Kind::IdentityRequest && identityFrame.payload.size()==8 && get(identityFrame.payload.data(),8)==103);
+  auto identityBytes=encode(identityFrame);Frame identityDecoded;assert(decode(identityBytes.data(),identityBytes.size(),identityDecoded));
+  identityOther.mesh.receive(identityBytes.data(),identityBytes.size(),100,0);assert(otherIdentified==0);
+  identityRelay.mesh.receive(identityBytes.data(),identityBytes.size(),100,0);
+  identityRelay.mesh.receive(identityBytes.data(),identityBytes.size(),100,0); // duplicate relay suppression
+  assert(identityRelay.mesh.pending()==1);exchange(identityRelay,identityB,100);assert(identified==1);
+  exchange(identityB,identityRelay,100);exchange(identityRelay,identityA,100);assert(hellos==1);
+  // A second requester cannot trigger another reply inside 30 seconds.
+  assert(identityOther.mesh.requestIdentity(103,101));exchange(identityOther,identityB,101);assert(identified==1);
+  assert(identityA.mesh.requestIdentity(103,30100));exchange(identityA,identityB,30100);assert(identified==2);
+  identityFrame.payload.pop_back();identityFrame.total=identityFrame.payload.size();assert(!valid(identityFrame));
+  // Per-target coalescing must not merge different requested node IDs.
+  Node identityMulti(105);assert(identityMulti.mesh.requestIdentity(106,0));assert(identityMulti.mesh.requestIdentity(107,0));assert(identityMulti.mesh.pending()==2);
+  Node identityBounded(109);
+  for(uint64_t target=200;target<232;++target)assert(identityBounded.mesh.requestIdentity(target,0));
+  assert(!identityBounded.mesh.requestIdentity(232,1));
+  assert(identityBounded.mesh.requestIdentity(232,30000));
+  Node identityFull(110);for(size_t i=0;i<MAX_QUEUE;++i)assert(identityFull.mesh.announce(std::to_string(i),0));
+  assert(!identityFull.mesh.requestIdentity(111,0));while(identityFull.mesh.next(0,identityFrame)){}
+  assert(identityFull.mesh.requestIdentity(111,0)); // Queue failure did not consume cooldown.
+  Node identityWrap(112);assert(identityWrap.mesh.requestIdentity(113,UINT32_MAX-100));
+  assert(!identityWrap.mesh.requestIdentity(113,10));assert(identityWrap.mesh.requestIdentity(113,30000));
+  // A TX-off/full-queue responder does not consume its response cooldown.
+  Node identityMuted(108);identityMuted.mesh.identityRequested=[](){return false;};
+  assert(identityMulti.mesh.requestIdentity(108,0));exchange(identityMulti,identityMuted,0);
+  int resumed=0;identityMuted.mesh.identityRequested=[&](){++resumed;return true;};
+  assert(identityOther.mesh.requestIdentity(108,1));exchange(identityOther,identityMuted,1);assert(resumed==1);
+  }
   assert(!canHumanAcknowledge(1,1) && !canHumanAcknowledge(1,0) && !canHumanAcknowledge(0,2) && canHumanAcknowledge(1,2));
   // Firmware handshakes, BLE names and incident IDs preserve all 64 bits
   // without relying on newlib-nano's unsupported %llx formatter.

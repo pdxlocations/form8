@@ -1,6 +1,6 @@
 export function availableReleases(releases, includePrereleases = false) {
   return releases.filter(release => !release.prerelease || includePrereleases)
-    .filter(release => release.assets.some(asset => asset.name === 'manifest.json') || (release.assets.some(asset => asset.name === 'SHA256SUMS-NRF52') && release.assets.some(asset => /^form8-[a-z0-9-]+\.uf2$/.test(asset.name))))
+    .filter(release => release.assets.some(asset => asset.name === 'form8-release.zip'))
     .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt));
 }
 
@@ -40,7 +40,7 @@ export function installManifest(target, image, version, binaryURL) {
     builds: [{chipFamily, parts: [{path: binaryURL, offset: Number(image.flashOffset)}]}]};
 }
 
-// Existing nRF releases already publish these hashes; no new release format needed.
+// Sizes come from the foldered ZIP catalog; hashes come from its nRF checksum file.
 export function validateNrfTargets(catalog, checksums, release) {
   if (!Array.isArray(catalog) || typeof checksums !== 'string') throw new Error('Invalid nRF board data.');
   const hashes = new Map();

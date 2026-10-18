@@ -13,7 +13,7 @@ function harness(){
   let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
   const context=vm.createContext({document:{querySelectorAll(){return [];}},updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,canHumanAcknowledge,canResendForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value,className)=>({...element(),tag,value,className}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>{calls.push('traffic');if(vm.runInContext('selectedForm && openRecord',context))context.renderForm({...record,body:record.meta.state==='stored'?record.body:undefined});},loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
   const originalApi=context.api;context.api=async(path,body)=>path==='time'?(calls.push({path,body}),{saved:true}):originalApi(path,body);
-  vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
+  vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();const identityRequests=new Map();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
   return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};
 }
 
@@ -280,4 +280,21 @@ test('origin reader Resend queues once, retains receipts, and is absent on recei
  let finish,calls=0;h.context.api=async(path,body)=>{assert.equal(path,'resend');assert.equal(body.id,'own');++calls;return new Promise(resolve=>finish=resolve);};h.context.poll=async()=>true;
  const pending=resend.onclick();await resend.onclick();assert.equal(calls,1);finish({queued:true});await pending;assert.equal(resend.textContent,'Resend');assert.equal(own.meta.receipts[0].human,true);
  own.meta.origin='other';vm.runInContext('renderForm(own)',h.context);assert(!h.$('#form-detail').children.flatMap(row=>row.children||[]).some(c=>c.label==='Resend'));
+});
+
+test('unknown nodes offer Request ID, show immediate wait feedback, then become named after Hello',async()=>{
+ const h=harness();h.update({peers:[{id:'2222222222222222',online:true,lastHeardAgeMs:100}]});await h.poll();
+ let row=h.$('#node-list').children[1],identify=row.children.find(e=>e.label==='Request ID');assert(identify);assert.equal(identify.disabled,false);
+ let release;const original=h.context.api;h.context.api=(path,body)=>path==='nodes/request-id'?new Promise(resolve=>{assert.equal(body.id,'2222222222222222');release=resolve;}):original(path,body);
+ const request=identify.onclick();row=h.$('#node-list').children[1];identify=row.children.find(e=>e.label==='Requesting…');assert(identify);assert.equal(identify.disabled,true);
+ release({queued:true});await request;assert(h.$('#node-list').children[1].children.some(e=>e.label?.startsWith('Requested · retry in')));
+ h.update({peers:[{id:'2222222222222222',callsign:'REMOTE',online:true,lastHeardAgeMs:100}]});await h.poll();row=h.$('#node-list').children[1];assert(row.children.some(e=>e.value==='REMOTE'));assert(!row.children.some(e=>e.label?.includes('Request')));
+});
+
+test('Request ID is disabled when TX is off and recovers after request failure',async()=>{
+ const h=harness();h.update({txEnabled:false,peers:[{id:'2222222222222222',online:false}]});await h.poll();
+ assert.equal(h.$('#node-list').children[1].children.find(e=>e.label==='Request ID').disabled,true);
+ h.update({txEnabled:true});await h.poll();const identify=h.$('#node-list').children[1].children.find(e=>e.label==='Request ID');assert.equal(identify.disabled,false);
+ h.context.api=async()=>{throw Error('Queue full');};await assert.rejects(identify.onclick(),/Queue full/);
+ assert.equal(h.$('#node-list').children[1].children.find(e=>e.label==='Request ID').disabled,false);
 });

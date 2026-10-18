@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -26,7 +27,7 @@ inline uint32_t crc32(const uint8_t* data, size_t size) {
 inline uint32_t crc32(const std::string& s) {
   return crc32(reinterpret_cast<const uint8_t*>(s.data()), s.size());
 }
-enum class Kind : uint8_t { Hello=1, Inventory=2, Request=3, Data=4, Receipt=5, HumanAck=6, Chat=7, ChatReceipt=8, Position=9 };
+enum class Kind : uint8_t { Hello=1, Inventory=2, Request=3, Data=4, Receipt=5, HumanAck=6, Chat=7, ChatReceipt=8, Position=9, IdentityRequest=10 };
 inline bool dataKind(Kind kind){return kind==Kind::Data || kind==Kind::Chat;}
 struct Frame {
   bool manual=false; // Local resend bookkeeping; never serialized.
@@ -47,13 +48,14 @@ inline uint64_t get(const uint8_t* p, size_t n) {
 }
 inline bool valid(const Frame& f) {
   const auto k = static_cast<uint8_t>(f.kind);
-  if (k<1 || k>9 || !f.origin || f.ttl>MAX_HOPS || f.priority>3 || f.payload.size()>CHUNK) return false;
-  if (f.kind != Kind::Hello && !f.incident) return false;
+  if (k<1 || k>10 || !f.origin || f.ttl>MAX_HOPS || f.priority>3 || f.payload.size()>CHUNK) return false;
+  if (f.kind != Kind::Hello && f.kind != Kind::IdentityRequest && !f.incident) return false;
   if (dataKind(f.kind)) {
     if (emptyId(f.id) || !f.total || f.total>(f.kind==Kind::Chat?768:MAX_BODY) || f.parts!=(f.total+CHUNK-1)/CHUNK || f.part>=f.parts) return false;
     return f.payload.size() == std::min(CHUNK, size_t(f.total)-size_t(f.part)*CHUNK);
   }
   if (f.part || f.parts!=1 || f.total!=f.payload.size()) return false;
+  if (f.kind == Kind::IdentityRequest) return f.payload.size()==8 && get(f.payload.data(),8)!=0;
   if (f.kind == Kind::Position) { PositionPacket p; return decodePosition(f.payload,p,0); }
   if (f.kind == Kind::Inventory) return !f.payload.empty() && f.payload.size()%20==0;
   if (f.kind == Kind::Request || f.kind == Kind::Receipt || f.kind == Kind::HumanAck || f.kind==Kind::ChatReceipt)
@@ -117,7 +119,9 @@ class Mesh {
   Reassembler reassembler;
   uint32_t serial=0, order=0, served=0;
   uint64_t self=0, incident=0;
-  bool relayEnabled=false;
+  bool relayEnabled=false,identityReplied=false;
+  uint32_t identityReplyAt=0;
+  std::map<uint64_t,uint32_t> identityRequests;
   bool duplicate(const Frame& f,uint32_t now) {
     Frame norm=f; norm.ttl=0; auto b=encode(norm);
     uint32_t sig=crc32(b.data(),b.size()-4);
@@ -125,6 +129,7 @@ class Mesh {
     seen[seenCursor++%seen.size()]={sig,now,true}; return false;
   }
 public:
+  std::function<bool()> identityRequested;
   std::function<bool(const Id&)> contains;
   std::function<bool(const Id&,Record&)> load;
   std::function<bool(const Record&)> persist;
@@ -169,7 +174,7 @@ public:
     // their original publisher/nonce and use the duplicate cache instead.
     if(f.origin==self && !dataKind(f.kind))
       for(const auto& item:queue)if(item.f.origin==self && item.f.kind==f.kind && item.f.incident==f.incident){
-        if(f.kind==Kind::Hello || f.kind==Kind::Inventory){if(item.f.payload==f.payload)return true;}
+        if(f.kind==Kind::Hello || f.kind==Kind::Inventory || f.kind==Kind::IdentityRequest){if(item.f.payload==f.payload)return true;}
         else if(item.f.id==f.id && item.f.hash==f.hash)return true;
       }
     if(queue.size()>=MAX_QUEUE){++dropped;return false;}
@@ -203,6 +208,16 @@ public:
   bool announce(const std::string& text,uint32_t now) {
     Frame f=control(Kind::Hello); f.payload.assign(text.begin(),text.end()); f.total=f.payload.size(); return queueFrame(f,now);
   }
+  bool requestIdentity(uint64_t target,uint32_t now) {
+    if(!target || target==self)return false;
+    for(auto it=identityRequests.begin();it!=identityRequests.end();) {
+      if(uint32_t(now-it->second)>=30000)it=identityRequests.erase(it);else ++it;
+    }
+    if(identityRequests.count(target) || identityRequests.size()>=32)return false;
+    Frame f=control(Kind::IdentityRequest);put(f.payload,target,8);f.total=f.payload.size();
+    if(!queueFrame(f,now))return false;
+    identityRequests[target]=now;return true;
+  }
   bool inventory(const std::vector<InventoryEntry>& entries,uint32_t now) {
     bool accepted=true;
     for (size_t pos=0;pos<entries.size();pos+=8) {
@@ -222,7 +237,7 @@ public:
   }
   void receive(const uint8_t* data,size_t len,uint32_t now,uint32_t jitter=100) {
     Frame f; if (!decode(data,len,f)) return;
-    if (f.kind!=Kind::Hello && f.incident!=incident) return;
+    if (f.kind!=Kind::Hello && f.kind!=Kind::IdentityRequest && f.incident!=incident) return;
     // Delay an unsent repair while another copy is arriving. Cancel only after
     // every fragment has been heard; incomplete transfers resume after silence.
     if(f.kind==Kind::Data) {
@@ -241,6 +256,14 @@ public:
     }
     if (f.origin==self || duplicate(f,now)) return;
     if (f.kind==Kind::Hello) { if (hello) hello(f); }
+    else if(f.kind==Kind::IdentityRequest){
+      if(get(f.payload.data(),8)==self){
+        if((!identityReplied || uint32_t(now-identityReplyAt)>=30000) && identityRequested && identityRequested()){
+          identityReplied=true;identityReplyAt=now;
+        }
+        return; // The request reached its target; do not forward it further.
+      }
+    }
     else if(f.kind==Kind::Position){if(position)position(f);}
     else if (f.kind==Kind::Inventory) {
       for (size_t i=0;i<f.payload.size();i+=20) {

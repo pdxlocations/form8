@@ -21,7 +21,8 @@ test('nRF download works without Web Serial, rejects corruption and clears stale
   const files=['form8-rak4631-s140-6-1-1.uf2','form8-rak4631-s140-6-1-1.hex'];
   const dataByFile=new Map([[files[0],uf2At(0x26000)],[files[1],hexAt(0x26000)]]);
   let binaryRequests=0;
-  const release={id:1,tag:'v1',publishedAt:'2026-01-01',assets:[{name:'SHA256SUMS-NRF52'},...files.map(name=>({name,bytes:dataByFile.get(name).length}))]};
+  const release={id:1,tag:'v1',publishedAt:'2026-01-01',assets:[{name:'form8-release.zip'}]};
+  const bundledAssets=[{name:'SHA256SUMS-NRF52'},...files.map(name=>({name,bytes:dataByFile.get(name).length}))];
   let corrupt=false;
   const revoked=[];
   class BlobURL extends URL {static createObjectURL(){return 'blob:verified';}static revokeObjectURL(url){revoked.push(url);}}
@@ -33,6 +34,7 @@ test('nRF download works without Web Serial, rejects corruption and clears stale
       if(url==='nrf52-targets.json')return {ok:true,json:async()=>[{environment:'rak4631-s140-6-1-1',board:'RAK4631 / stock S140 6.1.1',radio:'SX1262',softdevice:'6.1.1',applicationStart:'0x26000'}]};
       const kind=new URL(url,'https://example.com').searchParams.get('resource');
       if(kind==='releases')return {ok:true,json:async()=>({releases:[release]})};
+      if(kind==='catalog')return {ok:true,json:async()=>({assets:bundledAssets})};
       if(kind==='checksums')return {ok:true,text:async()=>files.map(f=>`${imageFor(f,dataByFile.get(f)).sha256}  ${f}`).join('\n')};
       if(kind==='binary'){binaryRequests++;const data=dataByFile.get(new URL(url,'https://example.com').searchParams.get('file'));return {ok:true,arrayBuffer:async()=>corrupt?new Uint8Array(data.length).buffer:data.buffer};}
       throw new Error(`Unexpected request ${url}`);

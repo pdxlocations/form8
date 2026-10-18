@@ -102,3 +102,7 @@ No. **Radio setup → Enable packet relaying** defaults to off. Enable it on nod
 ### Can I manually acknowledge my own form?
 
 No. Only receiving stations can human-acknowledge a form. Its originating node is labeled Origin instead. The app and radio enforce this by node ID, including after a callsign change. Old originator human ACKs are hidden and are not repeated.
+
+## Why does Nodes show “Callsign unknown”?
+
+You have heard a packet carrying that node’s ID but have not heard its station announcement. Announcements send the callsign at startup, on incident join/radio reconfiguration, and every **60–65 minutes**. Use **Nodes → Request ID** to ask it to announce now. Both radios need transmission On, a saved callsign, and updated firmware; required relays must also support ID requests. The list updates automatically when its reply arrives. Requests and replies are limited to once per 30 seconds; an offline/out-of-range node will not answer.

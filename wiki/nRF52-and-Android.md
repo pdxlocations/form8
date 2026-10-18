@@ -36,7 +36,7 @@ The files contain the application only. If the matching option is missing from t
 
 ## Install the radio firmware
 
-1. Download `form8-nrf52-firmware.zip` from the [release assets](https://github.com/pdxlocations/form8/releases).
+1. Download `form8-release.zip` from the [release assets](https://github.com/pdxlocations/form8/releases), extract it, and open its `nrf52/` folder.
 2. Extract the ZIP and choose the **matching board** `.uf2` file.
 3. Put the board in its vendor's UF2 bootloader mode, usually by double-pressing Reset. Read `INFO_UF2.TXT` on the USB drive.
 4. Match the image to the **SoftDevice** line in `INFO_UF2.TXT`. For a RAK4631 with **S140 6.1.1**, use `form8-rak4631-s140-6-1-1.uf2` (application at `0x26000`). For a RAK4631 with **S140 7.3.0**, use `form8-rak4631.uf2` (application at `0x27000`). All other current targets require **S140 7.3.0**. These images **do not contain or replace a SoftDevice or bootloader**. If the version is unknown, identify it before flashing. Do not use a bootloader intended for a different board.
@@ -47,7 +47,7 @@ The T1000-E magnetic cable normally does **not** expose a USB CDC data connectio
 
 ## Install the Android app
 
-1. Download **`form8-android-debug.apk`** from the release assets, or use the locally built `dist/form8-android-debug.apk`.
+1. Download and extract **`form8-release.zip`** from the release, then install **`android/form8-android-debug.apk`**, or use the locally built `dist/form8-android-debug.apk`.
 2. Open the APK on your Android phone. Allow that browser/file manager to install unknown apps when Android asks, then tap **Install**.
 3. Open **Form8**. Its screens are bundled; no radio hotspot or internet connection is required to open the app.
 4. Open **Settings → Radio connection**.

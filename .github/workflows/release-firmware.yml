@@ -106,6 +106,27 @@ jobs:
         working-directory: dist/firmware
         run: sha256sum --check SHA256SUMS
 
+      - name: Set up PHP ZIP support for web flasher tests
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: curl, zip
+          coverage: none
+
+      - name: Package downloads into platform folders
+        run: |
+          python3 tools/test_release_package.py
+          php tests/webflasher-api.php
+          npm run webflasher:prepare
+          python3 tools/package_release.py
+
+      - name: Save organized build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: form8-release
+          path: dist/release/
+          if-no-files-found: error
+
       - name: Create or resume a draft beta release
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -149,18 +170,8 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           gh release upload "$RELEASE_TAG" \
-            dist/form8-esp32-firmware.zip \
-            dist/form8-nrf52-firmware.zip \
-            dist/nrf52/form8-*.uf2 \
-            dist/nrf52/form8-*.hex \
-            dist/nrf52/SHA256SUMS-NRF52 \
-            dist/nrf52/README-NRF52.txt \
-            dist/form8-android-debug.apk \
-            dist/form8-android-debug.apk.sha256 \
-            dist/firmware/form8-*.bin \
-            dist/firmware/SHA256SUMS \
-            dist/firmware/manifest.json \
-            dist/firmware/README.txt \
+            dist/form8-release.zip \
+            dist/form8-release.zip.sha256 \
             --clobber
 
       - name: Publish the completed beta release

@@ -67,15 +67,19 @@ async function loadBoards() {
   loading = true;
   updateControls();
   $('release-link').href = `https://github.com/pdxlocations/form8/releases/tag/${encodeURIComponent(release.tag)}`;
-  status('Loading board builds…');
+  status('Loading board builds from the release bundle… The first download may take a moment.');
   try {
+    const catalog=await getJSON(api('catalog',{release:release.id}));
+    if(revision!==current)return;
+    if(!Array.isArray(catalog.assets))throw new Error('The release ZIP has an invalid firmware catalog.');
+    const bundledRelease={...release,assets:catalog.assets};
     const results = await Promise.allSettled([
-      release.assets.some(a => a.name === 'manifest.json')
-        ? getJSON(api('manifest', {release:release.id})).then(m => validateTargets(m, release)) : Promise.resolve([]),
-      release.assets.some(a => a.name === 'SHA256SUMS-NRF52') ? (async () => {
+      bundledRelease.assets.some(a => a.name === 'manifest.json')
+        ? getJSON(api('manifest', {release:release.id})).then(m => validateTargets(m, bundledRelease)) : Promise.resolve([]),
+      bundledRelease.assets.some(a => a.name === 'SHA256SUMS-NRF52') ? (async () => {
         const [catalog, response] = await Promise.all([getJSON('nrf52-targets.json'), fetch(api('checksums', {release:release.id}), {cache:'no-store'})]);
         if (!response.ok) throw new Error('Cannot load nRF release checksums. Refresh and try again.');
-        return validateNrfTargets(catalog, await response.text(), release);
+        return validateNrfTargets(catalog, await response.text(), bundledRelease);
       })() : Promise.resolve([])
     ]);
     if (revision !== current) return;
@@ -97,7 +101,7 @@ async function filterReleases(preferred) {
   if (!releases.length) {
     ++revision; clearPrepared(); targets = []; loading = false;
     options($('board'), [], null, null, 'No builds available');
-    status('No completed releases found. Publish a GitHub release and wait for its firmware build, then refresh.');
+    status('No foldered release bundles found. Publish a release with form8-release.zip, then refresh. Older loose-file builds are not listed.');
     updateControls(); return;
   }
   await loadBoards();
