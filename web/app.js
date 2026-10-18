@@ -108,6 +108,9 @@ function updateChatBadge(messages){
   setNavBadge('chat',unreadTracker.chat(status,messages,!document.hidden && !$('#chat').hidden),'unread texts');
 }
 function showTab(tab) {
+  if($(`#${tab}`).hidden){
+    const message=$('#feedback');message.hidden=true;message.textContent='';message.classList.toggle('error',false);
+  }
   for(const e of document.querySelectorAll('main > .panel'))e.hidden=e.id!==tab;
   for(const b of document.querySelectorAll('nav button')){const selected=b.dataset.tab===tab;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));}
   updateNavigationBadges();
@@ -145,6 +148,7 @@ async function deleteDraft(id,subject) {
 }
 function fill(d={}) {
   form.reset();locationData=d.location||null;boundIncident=d.boundIncident||'';
+  $('#compose-approval').open=false;
   for(const [name,value] of Object.entries(d))if(form.elements.namedItem(name) && value!=null && typeof value!=='object')form.elements.namedItem(name).value=value;
   form.elements.clientToken.value=d.clientToken||token();form.elements.addressMode.value=d.recipient && d.recipient!=='*'?'callsign':'broadcast';
   form.elements.recipient.disabled=form.elements.addressMode.value==='broadcast';
@@ -468,8 +472,9 @@ async function refreshScreen() {
     $('#board-info').textContent=`${next.board} · ${next.band.toUpperCase()} profile · ${next.clockSource}${Number.isFinite(next.batteryPercent)?` · Battery ~${next.batteryPercent}%`:next.batteryMillivolts>0?` · Battery ${(next.batteryMillivolts/1000).toFixed(2)} V`: ""}${next.powerNote?` · ${next.powerNote}`:''}`;
     const powerMin=next.powerMin??2,powerMax=next.powerMax??(next.band==='vhf'?10:20);
     const powerField=$('#radio-settings').elements.power;powerField.min=powerMin;powerField.max=powerMax;
-    $('#tx-power-label').textContent=next.powerIsDrive?'TX chip drive · dBm':'TX power · dBm';
-    $('#tx-power-help').textContent=`Range: ${powerMin}–${powerMax} dBm${next.powerIsDrive?'. Heltec V4 adds external amplification; this value is the SX1262 chip setting, not final antenna output.':'.'}`;
+    $('#tx-power-label').textContent=`${next.powerIsDrive?'TX chip drive':'TX power'} · dBm (${powerMin}–${powerMax})`;
+    $('#tx-power-help').textContent=next.powerIsDrive?'Heltec V4 adds external amplification; this value is the SX1262 chip setting, not final antenna output.':'';
+    $('#tx-power-help').hidden=!next.powerIsDrive;
     if(!settingsLoaded || !settingsDirty){
       const f=$('#radio-settings');for(const key of ['callsign','primary','backup','bandwidth','sf','cr','power'])f.elements[key].value=String(next[key]);
       for(const key of ['useBackup','relayEnabled'])f.elements[key].checked=key==='relayEnabled'?(next[key]??false):next[key];
@@ -572,6 +577,7 @@ function renderForm(record) {
   setTrafficView();
   const signature=JSON.stringify({record,canResend:canResendForm(record.meta,status),resending:resendingForms.has(record.meta.id)});
   if(signature===displayedRecord){renderReceipts(record.meta);return;}
+  const approvalOpen=!!displayedRecord && $('#form-detail .paper-approval')?.open;
   displayedRecord=signature;
   const m=record.meta,id=m.id,detail=$('#form-detail');detail.replaceChildren();detail.hidden=false;
   detail.append(text('h3',m.subject||'General message'),text('p',`ID ${m.id} · ${m.state}`,'muted'));
@@ -586,8 +592,11 @@ function renderForm(record) {
     sheet.append(field('1. Incident name',d.incidentName||d.incident||m.incident),
       field('2. To · name and position',d.to||d.recipient),field('3. From · name and position',d.from||d.sender),
       field('4. Subject',`${priorities[d.priority??m.priority]||'Routine'}: ${d.subject||m.subject||'—'}`,'paper-subject'),field('5. Date',d.date,'paper-date'),field('6. Time · local',d.time,'paper-time'),
-      field('7. Message',d.message,'',true),
-      field('8. Approved by · name',d.approvedBy,'paper-third'),field('Signature',d.signature,'paper-third'),field('Position / title',d.approvedPosition,'paper-third'));
+      field('7. Message / 9. Reply',d.message,'',true));
+    const approval=text('details','','paper-field paper-approval');approval.open=!!approvalOpen;
+    const approvalFields=text('div','','approval-fields');
+    approvalFields.append(field('Name',d.approvedBy),field('Signature',d.signature),field('Position / title',d.approvedPosition));
+    approval.append(text('summary','8. Approved by'),approvalFields);sheet.append(approval);
     const reply=field('9. Reply',d.parent?`Reply/correction linked to ${d.parent}`:'Replies are sent as linked messages.');
     if(canReplyToForm(m,status))reply.append(button('Reply',()=>replyToForm(record)));
     sheet.append(reply,field('10. Replied by · name',d.replyBy,'paper-third'),field('Position / title',d.replyPosition,'paper-third'),field('Signature',d.replySignature,'paper-third'),
@@ -690,7 +699,7 @@ async function refreshData(tab) {
   if(!refreshed)throw new Error('Some displayed data could not refresh. Retrying automatically.');
   if(tab==='compose')await draftList();
   if(tab==='archive')await loadArchives();
-  feedback('Data refreshed. Unsaved edits kept.');
+  if(!$(`#${tab}`).hidden)feedback('Data refreshed. Unsaved edits kept.');
 }
 for(const refresh of document.querySelectorAll('[data-refresh]'))refresh.onclick=run(async()=>{
   const label=refresh.textContent;refresh.disabled=true;refresh.textContent='Refreshing…';

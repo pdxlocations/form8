@@ -191,11 +191,11 @@ test('TX power range comes from the board and refreshes without overwriting an e
   const h=harness();h.update({powerMin:2,powerMax:22,powerIsDrive:false,power:22});await h.poll();
   const power=h.$('#radio-settings').elements.power;
   assert.equal(power.max,22);assert.equal(power.min,2);assert.equal(power.value,'22');
-  assert.equal(h.$('#tx-power-label').textContent,'TX power · dBm');
+  assert.equal(h.$('#tx-power-label').textContent,'TX power · dBm (2–22)');assert.equal(h.$('#tx-power-help').hidden,true);
   power.value='18';vm.runInContext('settingsDirty=true',h.context);
   h.update({powerMax:20});await h.poll();assert.equal(power.max,20);assert.equal(power.value,'18');
   h.update({powerMax:22,powerIsDrive:true});await h.poll();
-  assert.equal(h.$('#tx-power-label').textContent,'TX chip drive · dBm');assert.match(h.$('#tx-power-help').textContent,/not final antenna output/);
+  assert.equal(h.$('#tx-power-label').textContent,'TX chip drive · dBm (2–22)');assert.equal(h.$('#tx-power-help').hidden,false);assert.match(h.$('#tx-power-help').textContent,/not final antenna output/);
   h.update({powerMax:10,band:'vhf'});await h.poll();assert.equal(power.max,10);
 });
 
