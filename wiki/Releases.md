@@ -18,7 +18,7 @@ The manual run builds and publishes in the same workflow because [events created
 2. On GitHub, open **Releases → Draft a new release**.
 3. Choose or create a version tag, for example `v0.2.0`, pointing to the commit you want to release. Add the release title and notes.
 4. Click **Publish release**. Publishing a prerelease also starts the build; saving a draft or pushing a tag alone does not.
-5. Open **Actions → Release firmware** to watch the build. After all targets build and their checksums pass, the workflow attaches only `form8-release.zip` and `form8-release.zip.sha256` to that release. All board files and instructions are inside the platform folders in the ZIP. The web flasher discovers these assets automatically.
+5. Open **Actions → Release firmware** to watch the build. After all targets build and their checksums pass, the workflow attaches `form8-release.zip`, `form8-release.zip.sha256`, `form8-android-debug.apk`, and `form8-android-debug.apk.sha256` to that release. All board files and instructions are inside the platform folders in the ZIP. The web flasher discovers these assets automatically.
 
 The workflow uses GitHub's [published release event](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release) and the repository's built-in `GITHUB_TOKEN` with `contents: write`; no extra secret is needed. It builds the release tag rather than the latest branch commit. The target catalog in `config/firmware-targets.json` must contain every environment in `platformio.ini`, exactly once; the workflow checks this before compiling.
 
@@ -26,7 +26,7 @@ If a release-event build fails, check the Actions log. No upload step runs until
 
 ## Android and nRF assets
 
-The workflow also builds all configured environments in `platformio-nrf52.ini` and places their application-only UF2/HEX files and `SHA256SUMS-NRF52` in the release ZIP’s `nrf52/` folder. It builds and lints `form8-android-debug.apk`, then includes it with its checksum in `android/`. All builds finish before a manually triggered draft beta is created/published. The Android APK uses the checked-in public development key so development updates can preserve data; production signing is a separate process.
+The workflow also builds all configured environments in `platformio-nrf52.ini` and places their application-only UF2/HEX files and `SHA256SUMS-NRF52` in the release ZIP’s `nrf52/` folder. It builds and lints `form8-android-debug.apk`, then publishes it and its checksum as separate release downloads. The APK is not included in the firmware ZIP. All builds finish before a manually triggered draft beta is created/published. The Android APK uses the checked-in public development key so development updates can preserve data; production signing is a separate process.
 
 The web flasher reads ESP32 and nRF firmware directly from the foldered release ZIP. Install nRF images and the APK using the [nRF52 / Android guide](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android).
 
@@ -36,9 +36,8 @@ Download **`form8-release.zip`** from a completed release and extract it. Its fo
 
 - **`esp32/`** — ESP32 app-only updates, first-install factory images, manifest, checksums, and installation notes.
 - **`nrf52/`** — nRF52840 UF2/HEX files, checksums, and SoftDevice instructions. Check `INFO_UF2.TXT` and choose the matching SoftDevice profile before flashing.
-- **`android/`** — the Android development APK and its checksum.
 - **`webflasher/`** — the website files to upload to a PHP/HTTPS host, including the offline map downloader.
 
 A root `README.txt` explains the folders; a root `SHA256SUMS` verifies all included files. The same directory layout is available under **Actions → Release firmware → completed run → Artifacts → form8-release**. For local builds, run all firmware and Android builders, then `npm run webflasher:prepare` and `python3 tools/package_release.py`; the organized tree is written to `dist/release/`.
 
-GitHub release pages display assets as a flat list, so each release has just **`form8-release.zip`** and **`form8-release.zip.sha256`**. All firmware, APKs, metadata, and instructions stay inside the platform folders. The updated web flasher reads those folders from the ZIP; it does not need loose assets. Older loose-file releases are intentionally hidden by this flasher. Upload the new `webflasher/` contents to DreamHost and enable PHP ZIP support before publishing a bundle-only release. Existing published releases are not modified automatically.
+GitHub release pages display assets as a flat list, so each release has four downloads: **`form8-release.zip`**, **`form8-release.zip.sha256`**, **`form8-android-debug.apk`**, and **`form8-android-debug.apk.sha256`**. The APK can be installed without downloading/extracting the firmware ZIP. The ZIP contains only `esp32/`, `nrf52/`, and `webflasher/`, plus package notes and checksums. Android is also available as a separate **form8-android** Actions artifact. The updated web flasher reads those folders from the ZIP; it does not need loose assets. Older loose-file releases are intentionally hidden by this flasher. Upload the new `webflasher/` contents to DreamHost and enable PHP ZIP support before publishing a bundle-only release. Existing published releases are not modified automatically.

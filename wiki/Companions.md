@@ -4,7 +4,7 @@ The checked-in wrappers reuse `web/`; no cloud service is required after install
 
 ## Android
 
-The native Android project is checked in. Build with `npm ci` then `npm run build:android` using JDK 21+ and Android SDK 35. The result is `dist/form8-android-debug.apk`, an installable development app signed with the project's public development key. Release builds include it automatically in `android/` inside `form8-release.zip`. This is not a production/Play Store signing key.
+The native Android project is checked in. Build with `npm ci` then `npm run build:android` using JDK 21+ and Android SDK 35. The result is `dist/form8-android-debug.apk`, an installable development app signed with the project's public development key. Release builds publish the APK and its checksum as separate downloads and a separate Actions artifact; the APK is not included in the firmware ZIP. This is not a production/Play Store signing key.
 
 For nRF52840, select **Settings → Radio connection → Bluetooth or USB serial**. The app stores bodies and receipt metadata locally, and only confirms reception after a successful storage transaction. Keep the app in the foreground; there is no background service. Follow the [nRF52 / Android guide](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) for installation, board targets, storage limits, and reconnect behavior.
 

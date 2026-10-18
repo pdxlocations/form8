@@ -47,7 +47,7 @@ The T1000-E magnetic cable normally does **not** expose a USB CDC data connectio
 
 ## Install the Android app
 
-1. Download and extract **`form8-release.zip`** from the release, then install **`android/form8-android-debug.apk`**, or use the locally built `dist/form8-android-debug.apk`.
+1. Download **`form8-android-debug.apk`** directly from the release downloads; you do not need the firmware ZIP to install the app. The APK is not included in that ZIP. For local builds, use `dist/form8-android-debug.apk`.
 2. Open the APK on your Android phone. Allow that browser/file manager to install unknown apps when Android asks, then tap **Install**.
 3. Open **Form8**. Its screens are bundled; no radio hotspot or internet connection is required to open the app.
 4. Open **Settings → Radio connection**.

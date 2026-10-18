@@ -36,7 +36,7 @@ The same board selector offers the supported nRF board and SoftDevice profiles f
 2. Choose **UF2** for a compatible USB bootloader, or **HEX** for board-specific programming tools.
 3. Confirm the board, click **Download & verify firmware file**, then **Save form8-BOARD.uf2** (or `.hex`). File size, SHA-256, nRF52840 image format, application start address, and reserved-memory checks must pass before the save link appears.
 4. Before installation, confirm the correct board bootloader and **matching Nordic S140 version are already installed**. RAK4631 boards with stock S140 6.1.1 need the `rak4631-s140-6-1-1` build; the other builds require S140 7.3.0. These application images do not install either prerequisite. For UF2, enter the board’s bootloader (often RESET twice), check `INFO_UF2.TXT`, and copy the matching UF2 to its drive. For HEX, follow the board’s programming instructions and preserve the required SoftDevice and bootloader. No filesystem upload is needed.
-5. Download `form8-release.zip` from the same release, extract it, and install `android/form8-android-debug.apk`, then use **Settings → Radio connection → Bluetooth or USB serial**. nRF boards have no Wi-Fi hotspot; the Android app provides the interface and message storage.
+5. Download and install **`form8-android-debug.apk`** directly from the same release, then use **Settings → Radio connection → Bluetooth or USB serial**. nRF boards have no Wi-Fi hotspot; the Android app provides the interface and message storage.
 
 **T1000-E:** its stock magnetic cable is not a general USB data connection. A UF2 download does not make the board appear as a USB drive. Use the board-specific vendor or SWD programming procedure. Read the [nRF52 and Android guide](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android) before installing. All nRF targets remain experimental and need hardware testing.
 
@@ -71,7 +71,7 @@ The USB tool verifies the selected ESP32 or ESP32-S3 chip family; it **cannot id
 
 ## What comes from GitHub?
 
-The bridge reads the **20 most recent published releases**, including prereleases, and offers those containing **`form8-release.zip`**. Each release publishes only that ZIP and `form8-release.zip.sha256`. Inside are `esp32/`, `nrf52/`, `android/`, and `webflasher/`. Loose firmware assets and separate platform ZIPs are no longer uploaded.
+The bridge reads the **20 most recent published releases**, including prereleases, and offers those containing **`form8-release.zip`**. Each release publishes that ZIP and `form8-release.zip.sha256`, plus the standalone `form8-android-debug.apk` and `form8-android-debug.apk.sha256`. The ZIP contains `esp32/`, `nrf52/`, and `webflasher/`; the Android APK is not included in it. Loose firmware assets and separate platform ZIPs are no longer uploaded.
 
 When a visitor selects a release, DreamHost downloads and caches the complete ZIP for **five minutes**, then reads its firmware catalog directly. It serves only exact firmware and metadata paths in `esp32/` and `nrf52/`; it does not extract files onto the host. Archives are limited to **64 MiB** and **512 entries**, firmware to **20 MiB** per file, and manifest/checksum files to **1 MiB**. SHA-256, image-size, and nRF SoftDevice/address checks still run in the browser before installation/download. The archive checksum is also available for manual verification of the complete release download.
 

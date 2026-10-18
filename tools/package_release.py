@@ -27,7 +27,7 @@ def package_release(root=ROOT):
     with tempfile.TemporaryDirectory(prefix='release-staging-', dir=dist) as temporary:
         staging = Path(temporary)
         tree = staging/'release'
-        for folder in ('esp32', 'nrf52', 'android', 'webflasher'):
+        for folder in ('esp32', 'nrf52', 'webflasher'):
             (tree/folder).mkdir(parents=True)
         esp = dist/'firmware'
         manifest = json.loads((esp/'manifest.json').read_text())
@@ -49,24 +49,17 @@ def package_release(root=ROOT):
             copy_verified(nrf/name, tree/'nrf52'/name, digest)
         for name in ('SHA256SUMS-NRF52', 'README-NRF52.txt'):
             shutil.copy2(nrf/name, tree/'nrf52'/name)
-        apk = 'form8-android-debug.apk'
-        checksum = apk+'.sha256'
-        digest, checksum_name = (dist/checksum).read_text().split()
-        if checksum_name != apk:
-            raise ValueError('Android checksum names the wrong APK')
-        copy_verified(dist/apk, tree/'android'/apk, digest)
-        shutil.copy2(dist/checksum, tree/'android'/checksum)
         shutil.copytree(root/'webflasher', tree/'webflasher', dirs_exist_ok=True)
         (tree/'README.txt').write_text(
             'Form8 release downloads\n\n'
             'esp32/      App-only and first-install factory images, manifest and checksums.\n'
             'nrf52/      Application UF2/HEX images and SoftDevice instructions.\n'
-            'android/    Installable development APK and checksum.\n'
             'webflasher/ Upload these contents to your PHP/HTTPS web host.\n\n'
             'ESP32 updates: use the app-only image to preserve stored messages.\n'
             'nRF52: read INFO_UF2.TXT and match the installed SoftDevice before flashing.\n'
             'Stock RAK S140 6.1.1: form8-rak4631-s140-6-1-1.uf2.\n'
             'Other profiles require S140 7.3.0. Images do not replace the SoftDevice.\n'
+            'Android: download form8-android-debug.apk separately from the same release.\n'
             'Keep the Android app and radio firmware from the same release.\n'
             'Guides: https://github.com/pdxlocations/form8/wiki\n')
         checksums = []

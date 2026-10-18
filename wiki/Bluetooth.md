@@ -6,7 +6,7 @@ Both ESP32 and nRF52840 radios can connect to the Android companion using Blueto
 
 Update **both the ESP32 firmware and Android APK** to a version containing this feature. An app update alone cannot make an older Wi-Fi-only node advertise Bluetooth.
 
-1. Download `form8-release.zip` from the [release assets](https://github.com/pdxlocations/form8/releases), extract it, and install the matching ESP32 **app update** from `esp32/` and `android/form8-android-debug.apk`. Existing incident storage is preserved by an app-only firmware update; do not choose a factory image or upload a filesystem image over saved messages.
+1. Download `form8-release.zip` and the separate `form8-android-debug.apk` from the same [release](https://github.com/pdxlocations/form8/releases). Extract the ZIP and install the matching ESP32 **app update** from `esp32/`, then install the APK. Existing incident storage is preserved by an app-only firmware update; do not choose a factory image or upload a filesystem image over saved messages.
 2. Turn on the node. It starts its Wi-Fi hotspot and advertises Bluetooth as **`Form8-xxxx`**. The four-character suffix matches its Wi-Fi hotspot name, **`form8-xxxx`**.
 3. In Android Form8, open **Settings → Radio connection**, choose **Bluetooth (ESP32 / nRF52)**, and tap **Find radios**.
 4. Allow Nearby devices permission. Android 11 and earlier also need Location permission and Location enabled for BLE discovery.

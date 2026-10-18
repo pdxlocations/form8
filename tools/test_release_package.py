@@ -44,7 +44,8 @@ class ReleasePackageTests(unittest.TestCase):
         package_release(self.root)
         with ZipFile(self.dist/'form8-release.zip') as bundle:
             names = set(bundle.namelist())
-            self.assertEqual({name.split('/')[0] for name in names}, {'esp32', 'nrf52', 'android', 'webflasher', 'README.txt', 'SHA256SUMS'})
+            self.assertEqual({name.split('/')[0] for name in names}, {'esp32', 'nrf52', 'webflasher', 'README.txt', 'SHA256SUMS'})
+            self.assertFalse(any(name.startswith('android/') or name.endswith(('.apk', '.apk.sha256')) for name in names))
             self.assertIn('nrf52/form8-rak4631-s140-6-1-1.uf2', names)
             self.assertIn('webflasher/map-assets/map.js', names)
             self.assertFalse(any('obsolete' in name or 'older' in name for name in names))
@@ -68,7 +69,7 @@ class ReleasePackageTests(unittest.TestCase):
     def test_corrupt_input_preserves_previous_package(self):
         package_release(self.root)
         original = (self.dist/'form8-release.zip').read_bytes()
-        for path in ('firmware/form8-test.bin', 'nrf52/form8-rak4631-s140-6-1-1.uf2', 'form8-android-debug.apk'):
+        for path in ('firmware/form8-test.bin', 'nrf52/form8-rak4631-s140-6-1-1.uf2'):
             with self.subTest(path=path):
                 source = self.dist/path
                 previous = source.read_bytes()
@@ -78,6 +79,13 @@ class ReleasePackageTests(unittest.TestCase):
                 self.assertEqual((self.dist/'form8-release.zip').read_bytes(), original)
                 self.assertTrue((self.dist/'release'/'README.txt').is_file())
                 source.write_bytes(previous)
+
+    def test_firmware_package_does_not_require_an_android_build(self):
+        (self.dist/'form8-android-debug.apk').unlink()
+        (self.dist/'form8-android-debug.apk.sha256').unlink()
+        package_release(self.root)
+        with ZipFile(self.dist/'form8-release.zip') as bundle:
+            self.assertFalse(any(name.startswith('android/') or name.endswith('.apk') for name in bundle.namelist()))
 
     def test_missing_factory_image_fails_before_output(self):
         (self.dist/'firmware/form8-test-factory.bin').unlink()

@@ -67,6 +67,7 @@ async function loadBoards() {
   loading = true;
   updateControls();
   $('release-link').href = `https://github.com/pdxlocations/form8/releases/tag/${encodeURIComponent(release.tag)}`;
+  $('android-release-link').href = $('release-link').href;
   status('Loading board builds from the release bundle… The first download may take a moment.');
   try {
     const catalog=await getJSON(api('catalog',{release:release.id}));

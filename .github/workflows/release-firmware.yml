@@ -102,6 +102,10 @@ jobs:
       - name: Build and lint the Android development APK
         run: python3 tools/build_android.py
 
+      - name: Verify standalone Android APK checksum
+        working-directory: dist
+        run: sha256sum --check form8-android-debug.apk.sha256
+
       - name: Verify binary checksums
         working-directory: dist/firmware
         run: sha256sum --check SHA256SUMS
@@ -125,6 +129,15 @@ jobs:
         with:
           name: form8-release
           path: dist/release/
+          if-no-files-found: error
+
+      - name: Save standalone Android build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: form8-android
+          path: |
+            dist/form8-android-debug.apk
+            dist/form8-android-debug.apk.sha256
           if-no-files-found: error
 
       - name: Create or resume a draft beta release
@@ -172,6 +185,8 @@ jobs:
           gh release upload "$RELEASE_TAG" \
             dist/form8-release.zip \
             dist/form8-release.zip.sha256 \
+            dist/form8-android-debug.apk \
+            dist/form8-android-debug.apk.sha256 \
             --clobber
 
       - name: Publish the completed beta release
