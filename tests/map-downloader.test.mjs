@@ -5,7 +5,7 @@ import {validateMapPackage as websitePackage} from '../webflasher/map-assets/map
 import {validateMapPackage as radioPackage} from '../web/map-store.js';
 const root=new URL('../',import.meta.url);
 test('uploadable map assets stay identical to the radio app and its export format',()=>{
-  for(const name of ['map.js','map-model.js','map-store.js','position-client.js','theme.js','style.css'])
+  for(const name of ['actions.js','map.js','map-model.js','map-store.js','position-client.js','theme.js','style.css'])
     assert.equal(readFileSync(new URL(`webflasher/map-assets/${name}`,root),'utf8'),readFileSync(new URL(`web/${name}`,root),'utf8'),`Run npm run webflasher:prepare after changing web/${name}`);
   const pack={format:'form8-map-v1',provider:'usgs-topo',tiles:[{id:'12/652/1457',type:'image/png',data:'YWJj'}]};
   assert.equal(websitePackage(pack),radioPackage(pack));

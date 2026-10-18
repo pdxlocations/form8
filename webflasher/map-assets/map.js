@@ -1,5 +1,6 @@
 import {project,unproject,visibleTiles,downloadTiles,tileUrl,mapNodes,MAX_TILES,MAX_MAP_BYTES} from './map-model.js';
 import {tileStore,validateMapPackage} from './map-store.js';
+import {guardAction,trackActionControl} from './actions.js';
 
 export function createMapPanel({onError}){
   const $=id=>document.getElementById(id),canvas=$('node-map'),context=canvas.getContext('2d');
@@ -7,7 +8,10 @@ export function createMapPanel({onError}){
   const images=new Map(),pending=new Set(),failed=new Map();
   try{$('map-online').checked=localStorage.getItem('form8-map-online')!=='false';}catch{}
   const note=message=>$('map-download-status').textContent=message;
-  const task=fn=>async()=>{try{await fn();}catch(error){onError(error.message);}};
+  const task=fn=>guardAction(async event=>{
+    for(const id of ['map-download','map-import','map-export','map-delete'])trackActionControl($(id),'offline-map-storage');
+    await fn(event);
+  },{key:'offline-map-storage',onError:error=>onError(error.message)});
   try{const saved=JSON.parse(localStorage.getItem('form8-map-view'));if(saved&&Number.isFinite(saved.lat)&&Math.abs(saved.lat)<=85.0512&&Number.isFinite(saved.lon)&&Math.abs(saved.lon)<=180&&Number.isInteger(saved.zoom)&&saved.zoom>=0&&saved.zoom<=16){center={lat:saved.lat,lon:saved.lon};zoom=saved.zoom;centered=true;}}catch{}
   function saveView(){try{localStorage.setItem('form8-map-view',JSON.stringify({...center,zoom}));}catch{}}
   function dimensions(){return {width:Math.max(1,canvas.clientWidth),height:canvas.clientHeight};}

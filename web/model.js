@@ -104,7 +104,10 @@ export function deliveryStatus(meta, peers, self) {
   const radio=rows.filter(r=>r.received).map(r=>r.callsign);
   const human=rows.filter(r=>r.human).map(r=>r.callsign);
   const directed=meta.recipient && meta.recipient!=='*';
-  const targets=directed?rows.filter(r=>r.callsign===meta.recipient):rows;
+  // A later callsign change must not erase delivery to the original address.
+  const addressed=new Set([...(meta.expected||[]),...(meta.receipts||[]),...peers]
+    .filter(row=>row.callsign===meta.recipient).map(row=>row.id));
+  const targets=directed?rows.filter(r=>r.callsign===meta.recipient||addressed.has(r.id)):rows;
   const complete=directed?targets.some(r=>r.received):radio.length>0;
   const pending=targets.filter(r=>!r.received).map(r=>r.callsign);
   if(directed && !targets.length)pending.push(meta.recipient);

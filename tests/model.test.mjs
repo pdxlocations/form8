@@ -46,6 +46,14 @@ test('directed messages need the addressed callsign ACK; relay receipts are visi
   assert.equal(deliveryStatus(m,[],'self').complete,true);
   assert.equal(deliveryStatus(m,[],'self').label,'Radio ACK by K1AAA, K1BBB');
 });
+test('a saved recipient ACK remains delivered after the peer changes callsign or goes offline',()=>{
+ const meta={origin:'self',recipient:'NET-DEST',expected:[{id:'dest',callsign:'NET-DEST'}],receipts:[{id:'self'},{id:'dest',human:true}]};
+ for(const peers of [[],[{id:'dest',callsign:'NET-RENAMED',online:true}]]){
+  assert.equal(deliveryStatus(meta,peers,'self').complete,true);
+ }
+ meta.expected=[];meta.receipts[1].callsign='NET-DEST';
+ assert.equal(deliveryStatus(meta,[{id:'dest',callsign:'NET-RENAMED'}],'self').complete,true);
+});
 
 test('manual acknowledgment list includes every station, including self and offline stations, without counting radio-only receipts',()=>{
   const meta={expected:[{id:'offline',callsign:'NET-OFFLINE'}],receipts:[

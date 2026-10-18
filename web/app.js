@@ -1,4 +1,5 @@
 import {UnreadTracker,setNavBadge} from './unread.js';
+import {guardAction,trackActionControl} from './actions.js';
 import {createMapPanel} from './map.js';
 import {PositionClient,deviceLocation,locationPayload} from './position-client.js';
 import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, formDeliverySummary, canReplyToForm, canHumanAcknowledge, canResendForm, formReplyDraft, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
@@ -12,6 +13,7 @@ const identityRequests=new Map();
 const forgettingNodes=new Set();
 const deletingIncidents=new Set();
 let formSubmitting=false;
+let incidentTransition=null;
 let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;
 const form = $('#form8');
 const database = new Promise((resolve, reject) => {
@@ -93,12 +95,12 @@ function refreshFormFeedback(meta) {
   e.textContent=`Form ${meta.id.slice(-8)} saved to ${status.companionStorage?'companion':'radio'} · ${formDeliverySummary(meta,status)}.`;
   if(!formSubmitting)formSendStatus(e.textContent);
 }
-function run(fn) { return async event => { try { await fn(event); } catch(error) { feedback(error.message, true); } }; }
+function run(fn,key) { return guardAction(fn,{key,onError:error=>feedback(error.message,true)}); }
 function text(tag, value, className) { const el=document.createElement(tag);el.textContent=value;if(className)el.className=className;return el; }
-function button(label, fn, className='secondary') { const b=text('button',label,className);b.type='button';b.onclick=run(fn);return b; }
+function button(label, fn, className='secondary',key) { const b=text('button',label,className);b.type='button';b.onclick=run(fn,key);trackActionControl(b,key);return b; }
 const mapPanel=createMapPanel({onError:message=>feedback(message,true)});
 const positionClient=new PositionClient({post:payload=>api('position',payload),onStatus:message=>{$('#position-status').textContent=message;}});
-$('#retry-position').onclick=run(async()=>{await positionClient.retry();await poll();});
+$('#retry-position').onclick=run(async()=>{await positionClient.retry();await poll();},'device-position');
 const unreadTracker=new UnreadTracker();
 function updateNavigationBadges(){
   setNavBadge('traffic',status?.unreadMessages||0,'unread forms');
@@ -134,9 +136,9 @@ async function draftList() {
   const list=$('#draft-list');list.replaceChildren();
   for(const draft of (await db('drafts','getAll')).sort((a,b)=>b.savedAt-a.savedAt)){
     const subject=draftLabel(draft),item=text('div','','draft-item');
-    const remove=button('Delete',()=>deleteDraft(draft.id,subject),'draft-delete');
+    const remove=button('Delete',()=>deleteDraft(draft.id,subject),'draft-delete',`draft-delete:${draft.id}`);
     remove.setAttribute('aria-label',`Delete draft: ${subject}`);
-    item.append(button(subject,async()=>{await saveDraft();fill(draft.form);}),remove);list.append(item);
+    item.append(button(subject,async()=>{await saveDraft();fill(draft.form);},'secondary','draft-editor'),remove);list.append(item);
   }
 }
 async function deleteDraft(id,subject) {
@@ -165,7 +167,7 @@ function counts() {
 form.oninput=()=>{counts();$('#draft-state').textContent='Saving…';clearTimeout(draftTimer);draftTimer=setTimeout(()=>run(saveDraft)(),400);};
 form.elements.addressMode.onchange=()=>{form.elements.recipient.disabled=form.elements.addressMode.value==='broadcast';};
 for(const name of ['lat','lon'])form.elements[name].addEventListener('input',()=>{locationData=null;counts();});
-$('#new-draft').onclick=run(async()=>{clearTimeout(draftTimer);await saveDraft();fill();await saveDraft();});
+$('#new-draft').onclick=run(async()=>{clearTimeout(draftTimer);await saveDraft();fill();await saveDraft();},'draft-editor');
 function formSendStatus(message,busy=false,error=false) {
   for(const selector of ['#form-send-status','#traffic-send-status']){
     const e=$(selector);e.hidden=!message;e.textContent=message;e.classList.toggle('error',error);
@@ -220,7 +222,7 @@ $('#phone-location').onclick=run(async()=>{
   } finally {
     button.disabled=false;button.textContent=label;
   }
-});
+},'device-position');
 $('#clear-location').onclick=run(async()=>{locationData=null;form.elements.lat.value='';form.elements.lon.value='';counts();await saveDraft();});
 let chatReply=null, chatIncident='', chatSubmission=null, chatRendered='', chatSending=false, chatVersion='', chatMessages=[],chatAllMessages=[],chatHasOlder=false;
 const reactionSubmissions=new Map(),reactionBusy=new Set();
@@ -311,6 +313,7 @@ async function refreshChatMessages(){
 }
 function renderChatMessages(){
   if($('#chat').hidden)return;
+  const incident=status.incident;
   const signature=JSON.stringify([chatMessages,status.node,status.peers]);
   if(signature===chatRendered)return;
   chatRendered=signature;
@@ -329,13 +332,13 @@ function renderChatMessages(){
     item.append(text('p',message.text,'chat-body'));
     const actions=text('div','','chat-message-actions');
     for(const group of chatReactionGroups(message,status.node)){
-      const reaction=button(`${group.emoji} ${group.count}`,()=>reactToChat(message,group.emoji),`secondary chat-reaction${group.mine?' mine':''}`);
+      const reaction=button(`${group.emoji} ${group.count}`,()=>reactToChat(message,group.emoji),`secondary chat-reaction${group.mine?' mine':''}`,`chat-reaction:${status.node}/${message.id}/${group.emoji}`);
       reaction.setAttribute('aria-pressed',String(group.mine));reaction.title=`${group.people.join(', ')}${group.status?` · ${group.status}`:''}`;actions.append(reaction);
     }
     actions.append(button('Reply',()=>{chatReply={id:message.id,sender:message.sender,text:message.text};chatIncident=incident;chatSubmission=null;chatControls();$('#chat-text').focus();}));
     const picker=text('details','','chat-reaction-picker');picker.dataset.message=message.id;picker.open=opened.has(message.id);picker.append(text('summary','React'));
     const palette=text('div','','chat-emojis');
-    for(const emoji of chatEmojis){const choice=button(emoji,()=>reactToChat(message,emoji),'secondary');choice.setAttribute('aria-label',`React ${emoji} to ${message.sender}`);palette.append(choice);}
+    for(const emoji of chatEmojis){const choice=button(emoji,()=>reactToChat(message,emoji),'secondary',`chat-reaction:${status.node}/${message.id}/${emoji}`);choice.setAttribute('aria-label',`React ${emoji} to ${message.sender}`);palette.append(choice);}
     picker.append(palette);actions.append(picker);
     const footer=text('div','','chat-footer');
     footer.append(actions,text('p',chatRadioStatus(message,status.peers,status.node),'chat-radio-ack'));
@@ -454,7 +457,7 @@ async function refreshScreen() {
     const next=await api('status');
     const reconnected=!status;
     if(status && (status.node!==next.node || status.incident!==next.incident)){offset=0;selectedForm=null;displayedRecord='';openRecord=null;openingForm=null;setTrafficView();resetChat();}
-    status=next;incidentDeleteControls();updateNavigationBadges();for(const b of document.querySelectorAll('[data-announce]'))b.disabled=!canAnnounce();
+    status=next;incidentTransitionControls();updateNavigationBadges();for(const b of document.querySelectorAll('[data-announce]'))b.disabled=!canAnnounce();
     positionClient.update(next.companionConnected===false?null:next);mapPanel.update(next);renderNodes();
     chatControls();
     $('#connection').textContent=next.companionConnected===false?'Radio disconnected · companion data available':next.simulated?'Simulation · no RF':next.paused||!next.txEnabled?'Connected · Radio transmission off':'Connected to radio';
@@ -526,11 +529,15 @@ async function loadTraffic() {
   for(const m of result.forms){
     const row=text('div','','traffic-item'),description=text('div','');
     const heading=text('div','','traffic-subject');
-    heading.append(text('span',priorities[m.priority],'badge'+(m.priority===3?' urgent':'')),button(m.subject||'(No subject)',()=>openForm(m.id),'traffic-open'));
+    heading.append(text('span',priorities[m.priority],'badge'+(m.priority===3?' urgent':'')),button(m.subject||'(No subject)',()=>openForm(m.id),'traffic-open',`open-form:${status?.node}/${m.id}`));
     if(m.unread)heading.append(text('span','Unread','badge'));
     description.append(heading,text('p',`From: ${m.from||'—'} · To: ${m.to||'—'}`,'traffic-addresses'),text('p',`${m.sender} → ${m.recipient==='*'?'Broadcast':m.recipient} · ${m.state}`));
-    const delivery=deliveryStatus(m,status?.peers||[],status?.node),receipt=text('span',status?.simulated?'Simulation':delivery.complete?'Radio ACK':'Pending ACK','traffic-receipt'+(!status?.simulated&&delivery.complete?' acked':''));receipt.title=status?.simulated?'Saved in simulator · no radio transmission':delivery.label;
-    const actions=text('div','','traffic-actions');actions.append(button('Open',()=>openForm(m.id)));
+    const delivery=deliveryStatus(m,status?.peers||[],status?.node);
+    const radioAck=delivery.complete||delivery.radio?.length>0;
+    const recipientPending=radioAck&&!delivery.complete&&m.recipient&&m.recipient!=='*';
+    const receipt=text('span',status?.simulated?'Simulation':radioAck?`Radio ACK${recipientPending?' · recipient pending':''}`:'Pending ACK','traffic-receipt'+(!status?.simulated&&radioAck?' acked':''));
+    receipt.title=status?.simulated?'Saved in simulator · no radio transmission':delivery.label+(recipientPending?` · Awaiting recipient ACK: ${m.recipient}`:'');
+    const actions=text('div','','traffic-actions');actions.append(button('Open',()=>openForm(m.id),'secondary',`open-form:${status?.node}/${m.id}`));
     if(m.state==='stored')actions.append(messageCleanupButton('Archive',m,archiveMessage),messageCleanupButton('Remove…',m,removeMessage,'danger'));
     row.append(description,receipt,actions);list.append(row);
   }
@@ -598,7 +605,7 @@ function renderForm(record) {
     approvalFields.append(field('Name',d.approvedBy),field('Signature',d.signature),field('Position / title',d.approvedPosition));
     approval.append(text('summary','8. Approved by'),approvalFields);sheet.append(approval);
     const reply=field('9. Reply',d.parent?`Reply/correction linked to ${d.parent}`:'Replies are sent as linked messages.');
-    if(canReplyToForm(m,status))reply.append(button('Reply',()=>replyToForm(record)));
+    if(canReplyToForm(m,status))reply.append(button('Reply',()=>replyToForm(record),'secondary','draft-editor'));
     sheet.append(reply,field('10. Replied by · name',d.replyBy,'paper-third'),field('Position / title',d.replyPosition,'paper-third'),field('Signature',d.replySignature,'paper-third'),
       field('','ICS 213','paper-third paper-form-code'),field('Reply date',d.replyDate,'paper-third'),field('Reply time · local',d.replyTime,'paper-third'));
     if(d.location)sheet.append(field('Location',`${d.location.lat}, ${d.location.lon} · ${d.location.source} · fix age ${d.location.fixAgeMs||0} ms`));
@@ -614,7 +621,7 @@ function renderForm(record) {
         acknowledge.disabled=false;acknowledge.textContent='Acknowledge';throw error;
       }
       await poll();
-    });
+    },'secondary',`human-ack:${status?.node}/${id}`);
     acknowledge.disabled=acknowledged;
     if(canHumanAcknowledge(m,status))actions.append(acknowledge);
     if(m.origin===status?.node){
@@ -630,7 +637,7 @@ function renderForm(record) {
     }
     actions.append(button('Correction',async()=>{
       await saveDraft();const corrected={...d,clientToken:token(),parent:id,subject:`Correction: ${d.subject||''}`.slice(0,160)};delete corrected.boundIncident;fill(corrected);await saveDraft();showTab('compose');
-    }));detail.append(actions);
+    },'secondary','draft-editor'));detail.append(actions);
     const storage=text('section','','message-storage');storage.append(text('h4','Archive or remove'),text('p',`Archive keeps a verified copy on this device. Remove takes the message out of Traffic on ${localStoreName()}. Other nodes keep their copies.`,'muted'));
     const cleanup=text('div','','actions');
     cleanup.append(messageCleanupButton('Archive on this device',m,archiveMessage),messageCleanupButton('Remove message…',m,removeMessage,'danger'));storage.append(cleanup);detail.append(storage);
@@ -707,54 +714,77 @@ for(const refresh of document.querySelectorAll('[data-refresh]'))refresh.onclick
 });
 $('#all-incidents').onchange=$('#show-removed').onchange=run(async()=>{offset=0;await loadTraffic();});
 $('#previous-page').onclick=run(async()=>{offset=Math.max(0,offset-20);await loadTraffic();});$('#next-page').onclick=run(async()=>{offset+=20;await loadTraffic();});
-async function joinIncident(name,id) {await api('incident',{name,id});await poll();feedback(`Joined ${name}. Previous incident traffic is paused.`);await loadIncidents();}
-$('#create-incident').onsubmit=run(async event=>{event.preventDefault();await joinIncident(event.target.elements.name.value);event.target.reset();});
+async function joinIncident(name,id) {
+  if(incidentTransition || deletingIncidents.size)return false;
+  incidentTransition={kind:id?'join':'create',id};incidentTransitionControls();
+  feedback(id?`Joining ${name}…`:`Creating and joining ${name}…`);
+  try{await api('incident',{name,id});await poll();await loadIncidents();feedback(`Joined ${name}. Previous incident traffic is paused.`);return true;}
+  finally{incidentTransition=null;incidentTransitionControls();}
+}
+$('#create-incident').onsubmit=run(async event=>{event.preventDefault();if(await joinIncident(event.target.elements.name.value))event.target.reset();},'incident-membership');
 async function loadIncidents() {
   await poll();renderNearbyIncidents();await loadRetainedIncidents();
 }
 async function loadRetainedIncidents() {
   const result=await api('incidents'),retained=$('#retained');retained.replaceChildren();for(const i of result.incidents)appendIncident(retained,i.name,i.id,true);
 }
-function canAnnounce(){return !!(status?.incident && status.incident!=='0000000000000000' && status.txEnabled && !status.paused && status.radioReady && status.companionConnected!==false);}
+function incidentTransitionControls(only){
+  const working=!!incidentTransition || deletingIncidents.size>0;
+  for(const control of only?[only]:document.querySelectorAll('[data-incident-action]')){
+    trackActionControl(control,'incident-membership');
+    const action=control.dataset.incidentAction;
+    control.disabled=working || status?.companionConnected===false;
+    const selected=incidentTransition?.kind===action && (action!=='join'||incidentTransition.id===control.dataset.incident);
+    control.textContent=selected?(action==='join'?'Joining…':action==='leave'?'Leaving…':'Creating…'):(action==='join'?'Join':action==='leave'?'Leave':'Create and join');
+  }
+  if(!only){incidentDeleteControls();for(const control of document.querySelectorAll('[data-announce]'))control.disabled=!canAnnounce();}
+}
+function canAnnounce(){return !!(!incidentTransition && status?.incident && status.incident!=='0000000000000000' && status.txEnabled && !status.paused && status.radioReady && status.companionConnected!==false);}
 async function announceIncident(){
   if(!canAnnounce())throw new Error('Join an incident and set Radio transmission to On before announcing it.');
   await api('incident/announce',{});feedback('Incident announcement queued for radio transmission.');
 }
-for(const b of document.querySelectorAll('[data-announce]'))b.onclick=run(announceIncident);
+for(const b of document.querySelectorAll('[data-announce]'))b.onclick=run(announceIncident,'incident-announce');
 async function leaveIncident(){
+  if(incidentTransition || deletingIncidents.size)return;
   if(!confirm('Leave the active incident? Transmission and relaying for it stop. Saved messages stay available under previous incidents.'))return;
-  await api('incident/leave',{});await poll();await loadRetainedIncidents();feedback('Incident left. Saved messages are still available under previous incidents.');
+  incidentTransition={kind:'leave'};incidentTransitionControls();feedback(`Leaving ${status?.incidentName||'incident'}…`);
+  try{await api('incident/leave',{});await poll();await loadRetainedIncidents();feedback('Incident left. Saved messages are still available under previous incidents.');}
+  finally{incidentTransition=null;incidentTransitionControls();}
 }
 function incidentDeleteControls(){
   for(const control of document.querySelectorAll('[data-delete-incident]')){
     const id=control.dataset.deleteIncident,working=deletingIncidents.has(`${status?.node}/${id}`);
-    control.disabled=working || (status?.incident===id && status?.companionConnected===false);
+    control.disabled=!!incidentTransition || working || (status?.incident===id && status?.companionConnected===false);
     control.textContent=working?'Deleting…':'Delete incident & messages…';
   }
   const active=$('#delete-active-incident');
-  active.disabled=!status || !status.incident || status.incident==='0000000000000000' || status.companionConnected===false || deletingIncidents.has(`${status.node}/${status.incident}`);
+  active.disabled=!!incidentTransition || !status || !status.incident || status.incident==='0000000000000000' || status.companionConnected===false || deletingIncidents.has(`${status.node}/${status.incident}`);
   active.textContent=deletingIncidents.has(`${status?.node}/${status?.incident}`)?'Deleting…':'Delete active incident & messages…';
 }
 async function removeIncident(name,id){
   const node=status?.node,key=`${node}/${id}`;
-  if(!node || deletingIncidents.has(key))return;
+  if(!node || incidentTransition || deletingIncidents.has(key))return;
   const leaving=status.incident===id?'You will also leave this incident. ':'';
   if(!confirm(`Delete “${name}” and ALL of its stored forms, receipts, chat messages, replies, and reactions from ${localStoreName()}? ${leaving}This cannot be undone. Export anything you want to keep first. Drafts and archived copies on this device, and other nodes’ copies, are kept.`))return;
-  deletingIncidents.add(key);incidentDeleteControls();
+  deletingIncidents.add(key);incidentTransitionControls();
   try{
     const result=await api('incident/remove',{id});
     if(status?.node!==node)return;
     selectedForm=null;openRecord=null;openingForm=null;displayedRecord='';messageNeighbors={previous:null,next:null};offset=0;setTrafficView();
     await poll();await loadRetainedIncidents();
     feedback(`Incident deleted from ${localStoreName()}: ${result.forms??0} forms and ${result.chatEvents??0} chat events removed. Other nodes keep their copies.`);
-  }finally{deletingIncidents.delete(key);incidentDeleteControls();}
+  }finally{deletingIncidents.delete(key);incidentTransitionControls();}
 }
 $('#delete-active-incident').onclick=run(async()=>{if(status?.incident && status.incident!=='0000000000000000')await removeIncident(status.incidentName||status.incident,status.incident);});
 function appendIncident(container,name,id,saved=false) {
-  const row=text('div','','incident-item'),actions=text('div','','actions');
-  row.append(text('div',`${name} · ${id}`));
-  if(id===status?.incident){actions.append(text('span','Active','badge'));if(saved){const announce=button('Announce',announceIncident);announce.disabled=!canAnnounce();actions.append(announce,button('Leave',leaveIncident));}}
-  else actions.append(button('Join',()=>joinIncident(name,id)));
+  const row=text('div','','incident-item'),actions=text('div','','actions incident-actions');
+  const identity=text('div','','incident-identity'),heading=text('div','','incident-heading');
+  heading.append(text('strong',name||'Unnamed incident','incident-name'));
+  if(id===status?.incident)heading.append(text('span','Active','badge'));
+  identity.append(heading,text('p',`Incident ID ${id}`,'incident-id'));row.append(identity);
+  if(id===status?.incident){if(saved){const announce=button('Announce',announceIncident,'secondary','incident-announce');announce.disabled=!canAnnounce();const leave=button('Leave',leaveIncident,'secondary','incident-membership');leave.dataset.incidentAction='leave';incidentTransitionControls(leave);actions.append(announce,leave);}}
+  else {const join=button('Join',()=>joinIncident(name,id),'secondary','incident-membership');join.dataset.incidentAction='join';join.dataset.incident=id;incidentTransitionControls(join);actions.append(join);}
   if(saved){const remove=button(deletingIncidents.has(`${status?.node}/${id}`)?'Deleting…':'Delete incident & messages…',()=>removeIncident(name,id),'danger');remove.dataset.deleteIncident=id;remove.disabled=deletingIncidents.has(`${status?.node}/${id}`) || (status?.incident===id && status?.companionConnected===false);actions.append(remove);}
   row.append(actions);container.append(row);
 }
@@ -766,10 +796,10 @@ function renderNearbyIncidents() {
 async function loadArchives() {
   const list=$('#archive-list');list.replaceChildren();
   for(const record of await db('archives','getAll')){
-    const row=text('div','','archive-item');row.append(text('div',`${record.meta.subject||'General message'} · ${record.meta.incident}`),button('Read',()=>{const d=JSON.parse(record.body);const pre=text('pre',d.message,'message');row.append(pre);}),button('Export',()=>download([record])),button('Delete archive…',async()=>{
+    const row=text('div','','archive-item');row.append(text('div',`${record.meta.subject||'General message'} · ${record.meta.incident}`),button('Read',()=>{if(row.querySelector('pre.message'))return;const d=JSON.parse(record.body);const pre=text('pre',d.message,'message');row.append(pre);}),button('Export',()=>download([record]),'secondary',`archive-export:${record.id}`),button('Delete archive…',async()=>{
       if(!confirm('Delete this archived copy from this device? The copy on this device will be lost. Other nodes and stored traffic are unchanged.'))return;
       await db('archives','delete',record.id);await loadArchives();feedback('Archived copy deleted from this device.');
-    },'danger'));list.append(row);
+    },'danger',`archive-delete:${record.id}`));list.append(row);
   }
   if(!list.children.length)list.append(text('p','No archived forms on this device.','muted'));
 }

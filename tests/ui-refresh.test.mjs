@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {priorities,manualAcknowledgments, receiptRows, formDeliverySummary, canReplyToForm, canHumanAcknowledge, canResendForm} from '../web/model.js';
+import {priorities,manualAcknowledgments, receiptRows, deliveryStatus, formDeliverySummary, canReplyToForm, canHumanAcknowledge, canResendForm} from '../web/model.js';
 
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
 function descendants(element){return (element.children||[]).flatMap(child=>[child,...descendants(child)]);}
@@ -12,9 +12,9 @@ function harness(){
   const $=selector=>{if(!elements.has(selector))elements.set(selector,element());return elements.get(selector);};
   let next={node:'radio1',bootSession:1,callsign:'TEST2',frequency:919.5,peers:[],incident:'42',incidentName:'Test',storageUsed:0,storageTotal:1048576,queue:0,fsReady:true,radioReady:true,txEnabled:true,band:'uhf',board:'Heltec',clockSource:'unset',power:14};
   let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
-  const context=vm.createContext({priorities,document:{querySelectorAll(){return [];}},updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,canHumanAcknowledge,canResendForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value,className)=>({...element(),tag,value,className}),button:(label,onclick)=>({label,textContent:label,onclick,dataset:{}}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>{calls.push('traffic');if(vm.runInContext('selectedForm && openRecord',context))context.renderForm({...record,body:record.meta.state==='stored'?record.body:undefined});},loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
+  const context=vm.createContext({priorities,trackActionControl(){},document:{querySelectorAll(){return [];}},updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,canHumanAcknowledge,canResendForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value,className)=>({...element(),tag,value,className}),button:(label,onclick)=>({label,textContent:label,onclick,dataset:{}}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>{calls.push('traffic');if(vm.runInContext('selectedForm && openRecord',context))context.renderForm({...record,body:record.meta.state==='stored'?record.body:undefined});},loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
   const originalApi=context.api;context.api=async(path,body)=>path==='time'?(calls.push({path,body}),{saved:true}):originalApi(path,body);
-  vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();const identityRequests=new Map();const forgettingNodes=new Set();const deletingIncidents=new Set();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
+  vm.runInContext("let incidentTransition=null;let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();const identityRequests=new Map();const forgettingNodes=new Set();const deletingIncidents=new Set();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
   return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};
 }
 
@@ -197,6 +197,19 @@ test('TX power range comes from the board and refreshes without overwriting an e
   h.update({powerMax:22,powerIsDrive:true});await h.poll();
   assert.equal(h.$('#tx-power-label').textContent,'TX chip drive · dBm (2–22)');assert.equal(h.$('#tx-power-help').hidden,false);assert.match(h.$('#tx-power-help').textContent,/not final antenna output/);
   h.update({powerMax:10,band:'vhf'});await h.poll();assert.equal(power.max,10);
+});
+
+test('traffic shows a radio ACK immediately while keeping directed recipient delivery distinct',async()=>{
+ const h=harness();await h.poll();
+ const meta={id:'abc',origin:'radio1',recipient:'NET-DEST',subject:'ACK test',priority:0,state:'stored',expected:[{id:'relay',callsign:'NET-RELAY'},{id:'dest',callsign:'NET-DEST'}],receipts:[{id:'radio1'}]};
+ h.context.api=async()=>({forms:[meta],total:1,offset:0});h.context.deliveryStatus=deliveryStatus;
+ vm.runInContext('let total=0;'+source.slice(source.indexOf('async function loadTraffic()'),source.indexOf('function renderForm(')),h.context);
+ const receipt=()=>h.$('#traffic-list').children[0].children[1];
+ await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Pending ACK');
+ meta.receipts.push({id:'relay'});await vm.runInContext('loadTraffic()',h.context);
+ assert.equal(receipt().value,'Radio ACK · recipient pending');assert.match(receipt().title,/NET-RELAY.*NET-DEST/);
+ meta.receipts.push({id:'dest',human:true});await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Radio ACK');
+ meta.recipient='*';meta.receipts.pop();await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Radio ACK');
 });
 
 test('sent message info bar refreshes ACKs after returning to the list without replacing unrelated feedback',async()=>{
