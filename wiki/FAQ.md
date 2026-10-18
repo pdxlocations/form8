@@ -44,7 +44,7 @@ Yes. Compatible Form8 radios can forward packets through multiple hops. Actual r
 
 ## Why does a station still show Pending when it is offline?
 
-Known stations remain on a message's tracked list, even when they stop announcing themselves. A missing station stays Pending in the matrix so you can distinguish individual reception from the overall broadcast status. It does not keep a broadcast pending after another station has acknowledged. A station is shown offline after **90 minutes** without a valid packet carrying its origin ID. Routine announcements are hourly (60–65 minutes with jitter); relayed packets and repair responses can keep an origin recently heard even if its original station is absent. Use the Nodes tab to inspect last-heard time and last-hop signal readings.
+Known stations remain on a message's tracked list, even when they stop announcing themselves. A missing station stays Pending in the matrix so you can distinguish individual reception from the overall broadcast status. It does not keep a broadcast pending after another station has acknowledged. A station is shown offline after **90 minutes** without a valid packet carrying its origin ID. There are no periodic announcements; startup, manual actions, and newly heard nodes prompt announcements. A powered but silent radio can therefore show Offline; relayed packets and repair responses can keep an origin recently heard even if its original station is absent. Use the Nodes tab to inspect last-heard time and last-hop signal readings.
 
 ## Where are drafts, messages, and archives saved?
 
@@ -105,8 +105,12 @@ No. Only receiving stations can human-acknowledge a form. Its originating node i
 
 ## Why does Nodes show “Callsign unknown”?
 
-You have heard a packet carrying that node’s ID but have not heard its station announcement. Announcements send the callsign at startup, on incident join/radio reconfiguration, and every **60–65 minutes**. Use **Nodes → Request ID** to ask it to announce now. Both radios need transmission On, a saved callsign, and updated firmware; required relays must also support ID requests. The list updates automatically when its reply arrives. Requests and replies are limited to once per 30 seconds; an offline/out-of-range node will not answer.
+You have heard a packet carrying that node’s ID but have not heard its station announcement. Announcements send the callsign once at startup, manually, or when a new node is heard. There is no periodic timer. Use **Nodes → Request ID** to ask it to announce now. Both radios need transmission On, a saved callsign, and updated firmware; required relays must also support ID requests. The list updates automatically when its reply arrives. Requests and replies are limited to once per 30 seconds; an offline/out-of-range node will not answer.
 
 ## How do I clear offline nodes from the list?
 
 On **Nodes**, enable **Hide offline nodes** to filter them out; this choice is saved on your device. Use **Forget node** to clear an entry from the connected radio’s heard list. It does not remove messages, acknowledgments, or saved incidents and does not send a radio packet. The node reappears if another packet with its origin ID is heard. There is no Forget button for your own radio. A disconnected companion can filter its cached list, but must reconnect to forget an entry on the radio.
+
+## How do I delete an incident and all its stored messages?
+
+Open **Incidents** and choose **Delete active incident & messages…**, or **Delete incident & messages…** beside a saved incident. Read and accept the confirmation. This removes all stored forms, receipts, chat messages, replies, and reactions for that incident from the connected radio or nRF companion store. Deleting the active incident also leaves it. Other incidents, your drafts/device archives, and copies on other nodes are kept. The client reports how many forms and chat events were removed. This is local deletion, with no LoRa remote-delete packet.

@@ -3,26 +3,33 @@
 #include <map>
 
 namespace form8 {
-constexpr uint32_t HELLO_INTERVAL_MS=3600000,HELLO_JITTER_MS=300000;
+constexpr uint32_t DISCOVERY_HELLO_COOLDOWN_MS=30000;
 constexpr uint32_t PEER_ONLINE_MS=5400000;
 constexpr uint32_t INVENTORY_INTERVAL_MS=900000,INVENTORY_JITTER_MS=180000;
 constexpr uint32_t REPAIR_PAGE_MS=30000,REPAIR_JITTER_MS=15000,REPAIR_COOLDOWN_MS=600000;
 constexpr uint32_t CONTROL_QUEUE_RETRY_MS=2000,HUMAN_ACK_RECOVERY_MS=1800000;
 class BroadcastSchedule {
-  bool helloPending=true,repairPending=false,repairSent=false;
-  uint32_t helloNext=0,helloAttempt=0,inventoryNext=0,repairAt=0,repairNext=0;
+  bool helloPending=false,helloSent=false,repairPending=false,repairSent=false;
+  uint32_t helloLast=0,helloAttempt=0,inventoryNext=0,repairAt=0,repairNext=0;
   size_t repairPages=0;
 public:
-  void reset(uint32_t now){
-    helloPending=true;repairPending=false;repairSent=false;repairPages=0;
-    helloAttempt=now;inventoryNext=now+INVENTORY_INTERVAL_MS;
+  void reset(uint32_t now,bool startup=false){
+    if(startup){helloPending=true;helloSent=false;helloAttempt=now;}
+    repairPending=false;repairSent=false;repairPages=0;
+    inventoryNext=now+INVENTORY_INTERVAL_MS;
+  }
+  void nodeHeard(uint32_t now,uint32_t random){
+    if(helloPending)return; // Coalesce a group of arrivals into one response.
+    uint32_t delay=1000+random%4001;
+    if(helloSent && uint32_t(now-helloLast)<DISCOVERY_HELLO_COOLDOWN_MS)
+      delay=std::max(delay,DISCOVERY_HELLO_COOLDOWN_MS-uint32_t(now-helloLast));
+    helloPending=true;helloAttempt=now+delay;
   }
   void discover(bool sameIncident,uint32_t now=0,uint32_t random=0){if(sameIncident && !repairPages && !repairPending){repairPending=true;repairNext=now+5000+random%10001;}}
   bool helloDue(uint32_t now) const{
-    if(int32_t(now-helloAttempt)<0)return false;
-    return helloPending || int32_t(now-helloNext)>=0;
+    return helloPending && int32_t(now-helloAttempt)>=0;
   }
-  void helloQueued(uint32_t now,uint32_t random){helloPending=false;helloNext=now+HELLO_INTERVAL_MS+random%(HELLO_JITTER_MS+1);}
+  void helloQueued(uint32_t now){helloPending=false;helloSent=true;helloLast=now;}
   void helloFailed(uint32_t now){helloAttempt=now+CONTROL_QUEUE_RETRY_MS;}
   bool inventoryDue(uint32_t now) const{
     return (repairPending && int32_t(now-repairNext)>=0 && (!repairSent || uint32_t(now-repairAt)>=REPAIR_COOLDOWN_MS)) || int32_t(now-inventoryNext)>=0;

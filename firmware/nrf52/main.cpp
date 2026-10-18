@@ -105,7 +105,7 @@ void reply(int transport,int request,JsonDocument& data,const char* error=nullpt
 bool queueAnnouncement(uint32_t now){
  JsonDocument d;d["callsign"]=config["callsign"];String name=config["incidentName"]|"";size_t end=std::min(size_t(32),size_t(name.length()));while(end&&(uint8_t(name[end])&0xc0)==0x80)--end;d["name"]=name.substring(0,end);d["session"]=bootSession;String text;serializeJson(d,text);
  if(!mesh->announce(text.c_str(),now))return false;
- broadcasts.helloQueued(now,random(300001));return true;
+ broadcasts.helloQueued(now);return true;
 }
 void rpc(int transport,const String& line){JsonDocument in,out;if(deserializeJson(in,line))return;int request=in["request"]|0;String op=in["op"]|"",who=in["client"]|"";JsonVariant d=in["data"];const char* error=nullptr;
  if(who.length()!=32){reply(transport,request,out,"Invalid client identity");return;}
@@ -144,6 +144,11 @@ void rpc(int transport,const String& line){JsonDocument in,out;if(deserializeJso
  reply(transport,request,out,error);
 }
 void readByte(int t,char c){if(c=='\n'){if(!overflow[t]&&inputLines[t].length())rpc(t,inputLines[t]);inputLines[t]="";overflow[t]=false;}else if(!overflow[t]&&c!='\r'){if(inputLines[t].length()<16384)inputLines[t]+=c;else{inputLines[t]="";overflow[t]=true;}}}
+void noticeNode(const Frame& f,uint32_t now){
+ if(f.origin==nodeId)return;
+ auto peer=std::find_if(peers.begin(),peers.end(),[&](const Peer& p){return p.id==f.origin;});
+ if(peer==peers.end() || uint32_t(now-peer->last)>=PEER_ONLINE_MS)broadcasts.nodeHeard(now,random(4001));
+}
 void observePacket(const Frame& f,uint32_t now,float rssi,float snr){
  if(f.origin==nodeId)return;
  auto p=std::find_if(peers.begin(),peers.end(),[&](const Peer& peer){return peer.id==f.origin;});
@@ -187,9 +192,9 @@ void setup(){Serial.begin(115200);nodeId=(uint64_t(NRF_FICR->DEVICEID[1])<<32)|N
  mesh->humanAcknowledged=[](const Id& id,uint32_t hash){auto k=findKnown(id);return k&&k->human&&k->hash==hash&&canHumanAcknowledge(nodeId,k->origin);};
  mesh->receipt=[](const Id& id,uint64_t p,uint32_t hash,bool human){receiptEvent(id,p,hash,human,false);};mesh->chatReceipt=[](const Id& id,uint64_t p,uint32_t hash){receiptEvent(id,p,hash,false,true);};
  mesh->identityRequested=[](){return canTx() && queueAnnouncement(millis());};
- mesh->hello=[](const Frame& f){JsonDocument d;if(deserializeJson(d,f.payload.data(),f.payload.size()))return;String call=d["callsign"]|"",name=d["name"]|"";if(!validPositionCall(call.c_str()))return;if(name.length()&&!validChatText(std::string(name.c_str())))name="Incident "+hex64(f.incident);auto p=std::find_if(peers.begin(),peers.end(),[&](const Peer& p){return p.id==f.origin;});if(p==peers.end()){if(peers.size()>=31)peers.erase(std::min_element(peers.begin(),peers.end(),[](const Peer&a,const Peer&b){return a.last<b.last;}));peers.push_back({f.origin,f.incident,call,name,millis(),d["session"]|0,{}});broadcasts.discover(incident()&&incident()==f.incident,millis(),random(10001));}else{if(p->incident!=f.incident||p->session!=d["session"].as<uint32_t>()||uint32_t(millis()-p->last)>=PEER_ONLINE_MS)broadcasts.discover(incident()==f.incident,millis(),random(10001));p->incident=f.incident;p->call=call;p->name=name;p->last=millis();p->session=d["session"]|0;}};
+ mesh->hello=[](const Frame& f){JsonDocument d;if(deserializeJson(d,f.payload.data(),f.payload.size()))return;String call=d["callsign"]|"",name=d["name"]|"";if(!validPositionCall(call.c_str()))return;if(name.length()&&!validChatText(std::string(name.c_str())))name="Incident "+hex64(f.incident);auto p=std::find_if(peers.begin(),peers.end(),[&](const Peer& p){return p.id==f.origin;});if(p==peers.end()){if(peers.size()>=31)peers.erase(std::min_element(peers.begin(),peers.end(),[](const Peer&a,const Peer&b){return a.last<b.last;}));peers.push_back({f.origin,f.incident,call,name,millis(),d["session"]|0,{}});broadcasts.discover(incident()&&incident()==f.incident,millis(),random(10001));}else{if(p->session!=d["session"].as<uint32_t>())broadcasts.nodeHeard(millis(),random(4001));if(p->incident!=f.incident||p->session!=d["session"].as<uint32_t>()||uint32_t(millis()-p->last)>=PEER_ONLINE_MS)broadcasts.discover(incident()==f.incident,millis(),random(10001));p->incident=f.incident;p->call=call;p->name=name;p->last=millis();p->session=d["session"]|0;}};
  mesh->position=[](const Frame& f){PositionPacket p;if(!decodePosition(f.payload,p,millis()))return;for(auto& peer:peers)if(peer.id==f.origin){peer.position=p.fix;peer.last=millis();return;}};
- initRadio();broadcasts.reset(millis());positionSchedule.reset(millis());
+ initRadio();broadcasts.reset(millis(),true);positionSchedule.reset(millis());
  Bluefruit.autoConnLed(false);Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);Bluefruit.begin();Bluefruit.setTxPower(4);String name="Form8-"+hex64(nodeId).substring(10);Bluefruit.setName(name.c_str());uart.begin();Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);Bluefruit.Advertising.addTxPower();Bluefruit.Advertising.addService(uart);Bluefruit.ScanResponse.addName();Bluefruit.Advertising.restartOnDisconnect(true);Bluefruit.Advertising.setInterval(32,244);Bluefruit.Advertising.start(0);
 }
 void loop(){uint32_t now=millis();for(int n=0;n<512&&Serial.available();n++)readByte(0,Serial.read());for(int n=0;n<512&&uart.available();n++)readByte(1,uart.read());
@@ -197,7 +202,7 @@ void loop(){uint32_t now=millis();for(int n=0;n<512&&Serial.available();n++)read
 #ifndef NRF_NO_GPS
  for(int n=0;n<256&&Serial1.available();n++)gps.encode(Serial1.read());if(gps.location.isUpdated()&&gps.location.isValid())gpsFix={gps.location.lat(),gps.location.lng(),gps.hdop.isValid()?int(gps.hdop.hdop()*5):-1,true,true,now,uint32_t(gps.location.age())};
 #endif
- if(ready&&radioIrq){radioIrq=false;if(transmitting){radio.finishTransmit();mesh->transmitted(inFlight,now);if(dataKind(inFlight.kind)&&inFlight.origin==nodeId&&!inFlight.repairReply&&inFlight.part+1==inFlight.parts&&events.size()<32){JsonDocument e;e["event"]="sent";e["id"]=hexId(inFlight.id);event(e);}txFrames++;transmitting=false;nextTx=now+(dataKind(inFlight.kind)&&inFlight.origin==nodeId&&inFlight.part+1==inFlight.parts?3000:random(100,700));startRx();}else{size_t len=radio.getPacketLength();uint8_t data[254];if(len<=sizeof(data)){rxPackets++;lastRxError=radio.readData(data,len);if(!lastRxError){Frame f;if(decode(data,len,f)){rxFrames++;mesh->receive(data,len,now,random(100,1300));observePacket(f,now,radio.getRSSI(),radio.getSNR());}}else rxErrors++;}startRx();}}
+ if(ready&&radioIrq){radioIrq=false;if(transmitting){radio.finishTransmit();mesh->transmitted(inFlight,now);if(dataKind(inFlight.kind)&&inFlight.origin==nodeId&&!inFlight.repairReply&&inFlight.part+1==inFlight.parts&&events.size()<32){JsonDocument e;e["event"]="sent";e["id"]=hexId(inFlight.id);event(e);}txFrames++;transmitting=false;nextTx=now+(dataKind(inFlight.kind)&&inFlight.origin==nodeId&&inFlight.part+1==inFlight.parts?3000:random(100,700));startRx();}else{size_t len=radio.getPacketLength();uint8_t data[254];if(len<=sizeof(data)){rxPackets++;lastRxError=radio.readData(data,len);if(!lastRxError){Frame f;if(decode(data,len,f)){rxFrames++;noticeNode(f,now);mesh->receive(data,len,now,random(100,1300));observePacket(f,now,radio.getRSSI(),radio.getSNR());}}else rxErrors++;}startRx();}}
  if(transmitting&&uint32_t(now-txAt)>txTimeout){transmitting=false;mesh->queueFrame(inFlight,now,2000);startRx();}
  if(canTx()){
  if(broadcasts.helloDue(now)&&!queueAnnouncement(now))broadcasts.helloFailed(now);

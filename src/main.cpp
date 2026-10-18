@@ -247,11 +247,17 @@ bool markRead(const Id& id) {
   m["unread"]=false;if(!writeJson(path(id,".meta"),m))return false;
   stationDirty=true;return true;
 }
+void noticeNode(const Frame& f,uint32_t now){
+  if(f.origin==nodeId)return;
+  auto peer=std::find_if(peers.begin(),peers.end(),[&](const Peer& p){return p.id==f.origin;});
+  if(peer==peers.end() || uint32_t(now-peer->last)>=PEER_ONLINE_MS)broadcasts.nodeHeard(now,esp_random());
+}
 void onHello(const Frame& f) {
   JsonDocument d;if(deserializeJson(d,f.payload.data(),f.payload.size()))return;
   String c=d["callsign"]|"",name=d["name"]|"";if(!validCall(c)||name.length()>64)return;stationDirty=true;
   uint32_t session=d["session"]|uint32_t(0);
   for(auto& p:peers)if(p.id==f.origin){
+    if(p.session!=session)broadcasts.nodeHeard(millis(),esp_random());
     if(p.incident!=f.incident || p.session!=session || uint32_t(millis()-p.last)>=PEER_ONLINE_MS)broadcasts.discover(active && f.incident==active,millis(),esp_random());
     if(p.incident!=f.incident)p.position.valid=false;
     p.call=c;p.incident=f.incident;p.name=name;p.last=millis();p.session=session;return;
@@ -320,7 +326,7 @@ bool queueAnnouncement(uint32_t now){
   JsonDocument d;d["callsign"]=callsign;d["name"]=activeName;d["session"]=bootSession;String s;serializeJson(d,s);
   if(s.length()>CHUNK){d["name"]=activeName.substring(0,32);s="";serializeJson(d,s);}
   if(!mesh->announce(s.c_str(),now))return false;
-  broadcasts.helloQueued(now,esp_random());return true;
+  broadcasts.helloQueued(now);return true;
 }
 void api() {
   chatApi();
@@ -580,7 +586,7 @@ void setup() {
     for(JsonObject r:m["receipts"].as<JsonArray>())if(r["id"]==hex64(nodeId) && r["human"].as<bool>())return true;
     return false;
   };
-  boardPower();SPI.begin(RADIO_SCK,RADIO_MISO,RADIO_MOSI);initRadio();
+  boardPower();SPI.begin(RADIO_SCK,RADIO_MISO,RADIO_MOSI);initRadio();broadcasts.reset(millis(),true);
   beginGps();
   WiFi.mode(WIFI_AP);
   // Use the AP MAC in network byte order. The tail of getEfuseMac()'s
@@ -658,7 +664,7 @@ void loop() {
       if(len<=sizeof(bytes)) {
         lastRxError=radio.readData(bytes,len);
         if(lastRxError==RADIOLIB_ERR_NONE){
-          ++rxPackets;Frame frame;if(decode(bytes,len,frame))++rxFrames;
+          ++rxPackets;Frame frame;if(decode(bytes,len,frame)){++rxFrames;noticeNode(frame,now);}
           mesh->receive(bytes,len,now,100+esp_random()%1200);
           if(decode(bytes,len,frame))observePacket(frame,now,radio.getRSSI(),radio.getSNR());
         } else ++rxErrors;

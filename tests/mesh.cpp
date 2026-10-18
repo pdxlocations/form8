@@ -221,14 +221,14 @@ int main(){
     std::string content;while(source.mesh.next(100,part)){assert(part.manual&&!part.repairReply);content.append(part.payload.begin(),part.payload.end());}assert(content==copy.body);
   }
   // Quiet background schedules, bounded discovery responses, and join repair.
-  BroadcastSchedule background;background.reset(0);
-  assert(background.helloDue(0));background.helloQueued(0,0);
-  assert(!background.helloDue(3599999) && background.helloDue(3600000));
+  BroadcastSchedule background;background.reset(0,true);
+  assert(background.helloDue(0));background.helloQueued(0);
+  assert(!background.helloDue(3600000) && !background.helloDue(86400000));
   assert(!background.inventoryDue(899999) && background.inventoryDue(900000));
   background.inventoryQueued(900000,180000);
   assert(!background.inventoryDue(1979999) && background.inventoryDue(1980000));
-  BroadcastSchedule joining;joining.reset(0);joining.helloQueued(0,0);joining.discover(true,0,10000);
-  assert(!joining.helloDue(30000) && joining.helloDue(3600000));
+  BroadcastSchedule joining;joining.reset(0,true);joining.helloQueued(0);joining.discover(true,0,10000);
+  assert(!joining.helloDue(30000) && !joining.helloDue(3600000));
   assert(!joining.inventoryDue(14999) && joining.inventoryDue(15000) && joining.beginInventory(15000,17));
   joining.inventoryQueued(15000,0);joining.discover(true,15000,0); // Does not restart an active pass.
   assert(!joining.inventoryDue(44999) && joining.inventoryDue(45000));
@@ -238,18 +238,28 @@ int main(){
   assert(joining.beginInventory(615000,8));joining.inventoryFailed(615000);
   assert(!joining.inventoryDue(616999) && joining.inventoryDue(617000));
   BroadcastSchedule wrapped;const uint32_t wrapStart=UINT32_MAX-1000;
-  wrapped.reset(wrapStart);wrapped.helloQueued(wrapStart,0);
-  assert(!wrapped.helloDue(wrapStart+HELLO_INTERVAL_MS-1) && wrapped.helloDue(wrapStart+HELLO_INTERVAL_MS));
-  BroadcastSchedule fullQueue;fullQueue.reset(0);fullQueue.helloFailed(0);
+  wrapped.reset(wrapStart,true);wrapped.helloQueued(wrapStart);
+  wrapped.nodeHeard(wrapStart+1,0);
+  assert(!wrapped.helloDue(wrapStart+29999) && wrapped.helloDue(wrapStart+30000));
+  wrapped.helloQueued(wrapStart+30000);assert(!wrapped.helloDue(wrapStart+86400000));
+  BroadcastSchedule fullQueue;fullQueue.reset(0,true);fullQueue.helloFailed(0);
   assert(!fullQueue.helloDue(1999) && fullQueue.helloDue(2000));
-  // An idle empty station emits only its low-rate hellos, not empty inventories.
-  BroadcastSchedule quiet;quiet.reset(0);unsigned hellos=0;
-  for(uint32_t now=0;now<3600000;now+=1000){
-    if(quiet.helloDue(now)){++hellos;quiet.helloQueued(now,0);}
+  BroadcastSchedule quiet;quiet.reset(0,true);unsigned hellos=0;
+  for(uint32_t now=0;now<7*86400000;now+=1000){
+    if(quiet.helloDue(now)){++hellos;quiet.helloQueued(now);}
     if(quiet.inventoryDue(now)){quiet.beginInventory(now,0);quiet.inventoryQueued(now,0);}
   }
-  assert(hellos==1);
-  quiet.helloQueued(4000000,300000);assert(!quiet.helloDue(7899999) && quiet.helloDue(7900000));
+  assert(hellos==1); // No hourly or daily announcements.
+  quiet.reset(7*86400000);assert(!quiet.helloDue(7*86400000)); // Config/join resets stay quiet.
+  quiet.nodeHeard(7*86400000,4000);
+  assert(!quiet.helloDue(7*86400000+4999) && quiet.helloDue(7*86400000+5000));
+  quiet.nodeHeard(7*86400000+2000,4000);assert(quiet.helloDue(7*86400000+5000)); // Arrivals coalesce.
+  quiet.helloQueued(7*86400000+5000);
+  quiet.nodeHeard(7*86400000+5001,0);
+  assert(!quiet.helloDue(7*86400000+34999) && quiet.helloDue(7*86400000+35000));
+  quiet.helloQueued(7*86400000+35000);assert(!quiet.helloDue(8*86400000));
+  BroadcastSchedule startupDelayed;startupDelayed.reset(0,true);startupDelayed.reset(1000);
+  assert(startupDelayed.helloDue(1000)); // First allowed TX still sends the pending startup announcement.
   HumanAckRetries humans;const Id humanId=id(91);unsigned humanSends=0;
   auto sendHuman=[&](const Id& key,uint32_t hash){assert(key==humanId && hash==123);++humanSends;return true;};
   humans.begin(humanId,123,0,true);humans.service(14999,sendHuman);assert(humanSends==0);

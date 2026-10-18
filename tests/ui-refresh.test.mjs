@@ -11,9 +11,9 @@ function harness(){
   const $=selector=>{if(!elements.has(selector))elements.set(selector,element());return elements.get(selector);};
   let next={node:'radio1',bootSession:1,callsign:'TEST2',frequency:919.5,peers:[],incident:'42',incidentName:'Test',storageUsed:0,storageTotal:1048576,queue:0,fsReady:true,radioReady:true,txEnabled:true,band:'uhf',board:'Heltec',clockSource:'unset',power:14};
   let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
-  const context=vm.createContext({document:{querySelectorAll(){return [];}},updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,canHumanAcknowledge,canResendForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value,className)=>({...element(),tag,value,className}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>{calls.push('traffic');if(vm.runInContext('selectedForm && openRecord',context))context.renderForm({...record,body:record.meta.state==='stored'?record.body:undefined});},loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
+  const context=vm.createContext({document:{querySelectorAll(){return [];}},updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,canHumanAcknowledge,canResendForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value,className)=>({...element(),tag,value,className}),button:(label,onclick)=>({label,textContent:label,onclick,dataset:{}}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>{calls.push('traffic');if(vm.runInContext('selectedForm && openRecord',context))context.renderForm({...record,body:record.meta.state==='stored'?record.body:undefined});},loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
   const originalApi=context.api;context.api=async(path,body)=>path==='time'?(calls.push({path,body}),{saved:true}):originalApi(path,body);
-  vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();const identityRequests=new Map();const forgettingNodes=new Set();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
+  vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();const identityRequests=new Map();const forgettingNodes=new Set();const deletingIncidents=new Set();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
   return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};
 }
 
@@ -328,4 +328,29 @@ test('forget failure keeps the peer and restores its button; source changes prot
  let release;h.context.api=(path,body)=>path==='nodes/forget'?new Promise(resolve=>{release=resolve;}):original(path,body);
  const pending=h.context.forgetNode(peers[0].id);h.update({node:'another-radio',peers});await h.poll();release({saved:true});await pending;
  assert.equal(h.$('#node-list').children.length,2);assert(h.$('#node-list').children[1].children.some(e=>e.value==='KEEP'));
+});
+
+test('incident deletion has explicit active/saved controls and cancellation leaves all messages alone',async()=>{
+ const h=harness();h.$('#incidents').hidden=false;await h.poll();assert.equal(h.$('#delete-active-incident').disabled,false);
+ assert(h.$('#retained').children[0].children[1].children.some(b=>b.label==='Delete incident & messages…'));
+ let confirmed;h.context.confirm=message=>{confirmed=message;return false;};const original=h.context.api;let deletes=0;
+ h.context.api=(path,body)=>{if(path==='incident/remove')++deletes;return original(path,body);};
+ await h.context.removeIncident('Test','42');assert.equal(deletes,0);assert.match(confirmed,/ALL.*stored forms.*chat messages/);assert.match(confirmed,/other nodes’ copies.*kept/);
+ h.update({incident:'0000000000000000'});await h.poll();assert.equal(h.$('#delete-active-incident').disabled,true);
+});
+
+test('delete active incident shows immediate busy state, prevents duplicates and reports full cleanup counts',async()=>{
+ const h=harness();await h.poll();h.context.confirm=()=>true;
+ vm.runInContext("selectedForm='abc';openRecord={meta:{id:'abc'}};",h.context);
+ let release,deletes=0;const original=h.context.api;h.context.api=(path,body)=>path==='incident/remove'?(deletes++,assert.equal(body.id,'42'),new Promise(resolve=>{release=()=>{h.update({incident:'0000000000000000',incidentName:''});resolve({saved:true,forms:3,chatEvents:4});};})):original(path,body);
+ const pending=h.context.removeIncident('Test','42');assert.equal(h.$('#delete-active-incident').textContent,'Deleting…');assert.equal(h.$('#delete-active-incident').disabled,true);
+ await h.context.removeIncident('Test','42');assert.equal(deletes,1);release();await pending;
+ assert.equal(vm.runInContext('openRecord',h.context),null);assert.equal(vm.runInContext('selectedForm',h.context),null);
+ assert(h.calls.some(c=>typeof c==='string'&&/3 forms and 4 chat events removed/.test(c)));
+});
+
+test('failed incident deletion restores the control and does not discard the open record',async()=>{
+ const h=harness();await h.poll();h.context.confirm=()=>true;vm.runInContext("selectedForm='abc';openRecord={meta:{id:'abc'}};",h.context);
+ h.context.api=async()=>{throw Error('Storage unavailable');};await assert.rejects(h.context.removeIncident('Test','42'),/Storage unavailable/);
+ assert.equal(h.$('#delete-active-incident').disabled,false);assert.equal(vm.runInContext('selectedForm',h.context),'abc');
 });

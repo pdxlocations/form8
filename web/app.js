@@ -10,6 +10,7 @@ let openRecord=null, openingForm=null;
 const resendingForms=new Set();
 const identityRequests=new Map();
 const forgettingNodes=new Set();
+const deletingIncidents=new Set();
 let formSubmitting=false;
 let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;
 const form = $('#form8');
@@ -438,7 +439,7 @@ async function refreshScreen() {
     const next=await api('status');
     const reconnected=!status;
     if(status && (status.node!==next.node || status.incident!==next.incident)){offset=0;selectedForm=null;displayedRecord='';openRecord=null;openingForm=null;setTrafficView();resetChat();}
-    status=next;updateNavigationBadges();for(const b of document.querySelectorAll('[data-announce]'))b.disabled=!canAnnounce();
+    status=next;incidentDeleteControls();updateNavigationBadges();for(const b of document.querySelectorAll('[data-announce]'))b.disabled=!canAnnounce();
     positionClient.update(next.companionConnected===false?null:next);mapPanel.update(next);renderNodes();
     chatControls();
     $('#connection').textContent=next.companionConnected===false?'Radio disconnected · companion data available':next.simulated?'Simulation · no RF':next.paused||!next.txEnabled?'Connected · Radio transmission off':'Connected to radio';
@@ -690,18 +691,37 @@ async function leaveIncident(){
   if(!confirm('Leave the active incident? Transmission and relaying for it stop. Saved messages stay available under previous incidents.'))return;
   await api('incident/leave',{});await poll();await loadRetainedIncidents();feedback('Incident left. Saved messages are still available under previous incidents.');
 }
-async function removeIncident(name,id){
-  const leaving=status?.incident===id?'You will also leave this incident and stop relaying its traffic. ':'';
-  if(!confirm(`Remove “${name}” and all its forms, receipts, and chat from ${localStoreName()}? ${leaving}This cannot be undone. Export any forms you want to keep first. Archives and drafts on this device, and other nodes’ copies, are kept.`))return;
-  await api('incident/remove',{id});selectedForm=null;displayedRecord='';offset=0;setTrafficView();
-  await poll();await loadRetainedIncidents();feedback(`Incident and its local messages removed from ${localStoreName()}. Nearby nodes may still advertise it.`);
+function incidentDeleteControls(){
+  for(const control of document.querySelectorAll('[data-delete-incident]')){
+    const id=control.dataset.deleteIncident,working=deletingIncidents.has(`${status?.node}/${id}`);
+    control.disabled=working || (status?.incident===id && status?.companionConnected===false);
+    control.textContent=working?'Deleting…':'Delete incident & messages…';
+  }
+  const active=$('#delete-active-incident');
+  active.disabled=!status || !status.incident || status.incident==='0000000000000000' || status.companionConnected===false || deletingIncidents.has(`${status.node}/${status.incident}`);
+  active.textContent=deletingIncidents.has(`${status?.node}/${status?.incident}`)?'Deleting…':'Delete active incident & messages…';
 }
+async function removeIncident(name,id){
+  const node=status?.node,key=`${node}/${id}`;
+  if(!node || deletingIncidents.has(key))return;
+  const leaving=status.incident===id?'You will also leave this incident. ':'';
+  if(!confirm(`Delete “${name}” and ALL of its stored forms, receipts, chat messages, replies, and reactions from ${localStoreName()}? ${leaving}This cannot be undone. Export anything you want to keep first. Drafts and archived copies on this device, and other nodes’ copies, are kept.`))return;
+  deletingIncidents.add(key);incidentDeleteControls();
+  try{
+    const result=await api('incident/remove',{id});
+    if(status?.node!==node)return;
+    selectedForm=null;openRecord=null;openingForm=null;displayedRecord='';messageNeighbors={previous:null,next:null};offset=0;setTrafficView();
+    await poll();await loadRetainedIncidents();
+    feedback(`Incident deleted from ${localStoreName()}: ${result.forms??0} forms and ${result.chatEvents??0} chat events removed. Other nodes keep their copies.`);
+  }finally{deletingIncidents.delete(key);incidentDeleteControls();}
+}
+$('#delete-active-incident').onclick=run(async()=>{if(status?.incident && status.incident!=='0000000000000000')await removeIncident(status.incidentName||status.incident,status.incident);});
 function appendIncident(container,name,id,saved=false) {
   const row=text('div','','incident-item'),actions=text('div','','actions');
   row.append(text('div',`${name} · ${id}`));
   if(id===status?.incident){actions.append(text('span','Active','badge'));if(saved){const announce=button('Announce',announceIncident);announce.disabled=!canAnnounce();actions.append(announce,button('Leave',leaveIncident));}}
   else actions.append(button('Join',()=>joinIncident(name,id)));
-  if(saved)actions.append(button('Remove incident…',()=>removeIncident(name,id),'danger'));
+  if(saved){const remove=button(deletingIncidents.has(`${status?.node}/${id}`)?'Deleting…':'Delete incident & messages…',()=>removeIncident(name,id),'danger');remove.dataset.deleteIncident=id;remove.disabled=deletingIncidents.has(`${status?.node}/${id}`) || (status?.incident===id && status?.companionConnected===false);actions.append(remove);}
   row.append(actions);container.append(row);
 }
 function renderNearbyIncidents() {

@@ -183,3 +183,19 @@ test('forget node clears the radio and persisted peer cache while preserving for
  h.api.rpc=async()=>{throw Error('Unknown operation');};await assert.rejects(h.api.request('nodes/forget',{id:PEER}),/Update.*firmware.*Android/);assert.equal(h.api.status.peers.length,1);
  h.api.connected=false;await assert.rejects(h.api.request('nodes/forget',{id:PEER}),/Connect the radio/);
 });
+
+test('delete incident removes original forms, linked forms, offloaded metadata, texts, replies and reactions only for that incident',async()=>{
+ const h=harness();h.incoming();await h.api.connect();
+ const reply='b'.repeat(32),correction='c'.repeat(32),chat='d'.repeat(32),chatReply='e'.repeat(32),reaction='f'.repeat(32),other='4444444444444444';
+ for(const id of [reply,correction])await h.api.request('forms',{clientToken:id,parent:ID,message:'Linked message',recipient:'*',priority:0});
+ await h.api.request('chat',{clientToken:chat,type:'chat-message',text:'Original text'});
+ await h.api.request('chat',{clientToken:chatReply,type:'chat-message',text:'Text reply',parent:chat});
+ await h.api.request('chat',{clientToken:reaction,type:'chat-reaction',target:chat,emoji:'👍',active:true});
+ await h.api.request('offload',{id:ID,mode:'discard'});
+ await h.api.change(s=>{s.incidents=[{id:INCIDENT,name:'Delete'},{id:other,name:'Keep'}];const keep=structuredClone(s.records.find(r=>r.meta.id===reply));keep.meta.id='1'.repeat(32);keep.meta.incident=other;s.records.push(keep);});
+ const keep=structuredClone(h.saved.records.find(r=>r.meta.incident===other)),revision=h.saved.chatRevision;
+ const result=await h.api.request('incident/remove',{id:INCIDENT});
+ assert.equal(result.forms,3);assert.equal(result.chatEvents,3);assert.equal(h.api.status.incident,'0000000000000000');
+ assert.deepEqual(h.saved.records,[keep]);assert.deepEqual(h.saved.incidents,[{id:other,name:'Keep'}]);assert(h.saved.chatRevision>revision);
+ for(const id of [ID,reply,correction,chat,chatReply,reaction])assert(!h.api.inflight.has(id));
+});
