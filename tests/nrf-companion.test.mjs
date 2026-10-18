@@ -170,3 +170,16 @@ test('Request ID reaches the radio without joining the unknown node incident or 
  h.api.status.txEnabled=true;h.api.rpc=async()=>{throw Error('Unknown operation');};await assert.rejects(h.api.request('nodes/request-id',{id:PEER}),/Update.*firmware.*Android/);
  h.api.connected=false;await assert.rejects(h.api.request('nodes/request-id',{id:PEER}),/Connect the radio/);
 });
+
+test('forget node clears the radio and persisted peer cache while preserving forms, ACKs and incidents',async()=>{
+ const h=harness();h.incoming();await h.api.connect();const before=structuredClone(h.saved);h.api.status.txEnabled=false;
+ const rpc=h.api.rpc;h.api.rpc=async(op,data)=>{if(op==='forgetNode'){assert.equal(data.id,PEER);h.status.peers=[];return {saved:true,removed:true};}return rpc(op,data);};
+ assert.equal((await h.api.request('nodes/forget',{id:PEER})).removed,true);assert.equal(h.api.status.peers.length,0);assert.equal(h.saved.lastStatus.peers.length,0);
+ assert.deepEqual(h.saved.records,before.records);assert.deepEqual(h.saved.incidents,before.incidents);assert.equal(h.api.status.incident,INCIDENT);
+ assert.equal((await h.api.request('status')).peers.length,0);
+ h.status.peers=[{id:PEER,callsign:'BACK',online:true,incident:INCIDENT}];assert.equal((await h.api.request('status')).peers[0].callsign,'BACK');
+ await assert.rejects(h.api.request('nodes/forget',{id:NODE}),/another valid node/);
+ await assert.rejects(h.api.request('nodes/forget',{id:'0000000000000000'}),/another valid node/);
+ h.api.rpc=async()=>{throw Error('Unknown operation');};await assert.rejects(h.api.request('nodes/forget',{id:PEER}),/Update.*firmware.*Android/);assert.equal(h.api.status.peers.length,1);
+ h.api.connected=false;await assert.rejects(h.api.request('nodes/forget',{id:PEER}),/Connect the radio/);
+});

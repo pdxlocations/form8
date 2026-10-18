@@ -87,3 +87,5 @@ nav button{position:relative}
 [data-theme="dark"] .receipt-origin{background:#213553;color:#b7d3ff}[data-theme="dark"] .receipt-radio{background:#203f35;color:#afe2cc}[data-theme="dark"] .receipt-human{background:#29442a;color:#c0e7b8}[data-theme="dark"] .receipt-pending{background:#493b20;color:#ffe1a0}[data-theme="dark"] :is(.receipt-offline,.receipt-none){background:#2b332e;color:#c1cbc4}
 
 #form-send-status,#traffic-send-status{padding:8px 10px;margin-top:10px;border:1px solid var(--border);border-radius:4px;font-size:13px;overflow-wrap:anywhere}#form-send-status.error,#traffic-send-status.error{color:#a13b28}.sending::before{content:"";display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;margin-right:8px;vertical-align:-2px;animation:form-send-spin .8s linear infinite}@keyframes form-send-spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.sending::before{animation:none}}[data-theme="dark"] :is(#form-send-status.error,#traffic-send-status.error){color:#ffb7a9}
+
+.node-card>button{margin-top:8px;margin-right:8px}

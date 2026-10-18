@@ -9,6 +9,7 @@ let selectedForm = null, polling = null, settingsDirty = false, displayedRecord 
 let openRecord=null, openingForm=null;
 const resendingForms=new Set();
 const identityRequests=new Map();
+const forgettingNodes=new Set();
 let formSubmitting=false;
 let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;
 const form = $('#form8');
@@ -353,7 +354,9 @@ $('#chat-form').onsubmit=run(async event=>{
 function renderNodes() {
   const list=$('#node-list');list.replaceChildren();if(!status)return;
   const own={id:status.node,callsign:status.callsign,incident:status.incident,name:status.incidentName,own:true};
-  const nodes=[own,...[...(status.peers||[])].sort((a,b)=>(a.lastHeardAgeMs??Infinity)-(b.lastHeardAgeMs??Infinity))];
+  const peers=status.peers||[],visible=peers.filter(peer=>!$('#hide-offline-nodes').checked || peer.online);
+  $('#nodes-summary').textContent=`${visible.length} other nodes shown${peers.length>visible.length?` · ${peers.length-visible.length} offline hidden`:''}`;
+  const nodes=[own,...[...visible].sort((a,b)=>(a.lastHeardAgeMs??Infinity)-(b.lastHeardAgeMs??Infinity))];
   for(const node of nodes){
     const row=text('article','','node-card');
     row.append(text('strong',`${node.callsign||'Callsign unknown'}${node.own?' · This radio':''}`),text('p',`Node ID ${node.id}`,'muted'));
@@ -372,10 +375,31 @@ function renderNodes() {
         identify.title='Ask this node to broadcast its callsign and incident. Requires updated firmware and radio transmission on at both ends.';
         row.append(identify);
       }
+      const forgetting=forgettingNodes.has(`${status.node}/${node.id}`);
+      const forget=button(forgetting?'Forgetting…':'Forget node',()=>forgetNode(node.id));
+      forget.disabled=forgetting || status.companionConnected===false;
+      forget.title='Clear this heard-node entry on the connected radio. It returns when another packet is heard.';
+      row.append(forget);
     }
     list.append(row);
   }
 }
+async function forgetNode(id){
+  const node=status?.node,key=`${node}/${id}`;
+  if(!node || id===node || forgettingNodes.has(key))return;
+  forgettingNodes.add(key);renderNodes();
+  try{
+    await api('nodes/forget',{id});
+    if(status?.node!==node)return;
+    status.peers=(status.peers||[]).filter(peer=>peer.id!==id);
+    renderNodes();renderNearbyIncidents();mapPanel.update(status);
+    feedback('Node forgotten from this radio’s heard list. It will return when another packet is heard. Messages and saved incidents are kept.');
+    await poll();
+  }finally{forgettingNodes.delete(key);if(status?.node===node)renderNodes();}
+}
+$('#hide-offline-nodes').onchange=run(async()=>{
+  renderNodes();await db('settings','put',{id:'nodes-hide-offline',value:$('#hide-offline-nodes').checked});
+});
 async function requestNodeIdentity(id){
   const node=status?.node,key=`${node}/${id}`,existing=identityRequests.get(key);
   if(existing && (existing.busy || Date.now()-existing.at<30000))return;
@@ -724,6 +748,7 @@ $('#sync-time').onclick=run(async()=>{
   await poll();feedback('Radio time updated from this device.');
 });
 async function start() {
+  $('#hide-offline-nodes').checked=(await db('settings','get','nodes-hide-offline'))?.value===true;
   const drafts=(await db('drafts','getAll')).sort((a,b)=>b.savedAt-a.savedAt);fill(drafts[0]?.form);await draftList();await poll();
   setInterval(poll,2000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});

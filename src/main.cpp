@@ -368,6 +368,14 @@ void api() {
     relayEnabled=d["relayEnabled"]|relayEnabled;txEnabled=d["txEnabled"]|txEnabled;paused=d["paused"]|paused;saveConfig();radio.standby();initRadio();
     JsonDocument out;out["saved"]=true;out["radioReady"]=radioReady;respond(200,out);
   });
+  apiOn("/api/nodes/forget",HTTP_POST,[]{
+    JsonDocument d;if(!input(d))return;String id=d["id"]|"";
+    if(!parseHex(id,16) || !parse64(id) || parse64(id)==nodeId){error(400,"Choose another valid node ID");return;}
+    const size_t before=peers.size();
+    peers.erase(std::remove_if(peers.begin(),peers.end(),[&](const Peer& peer){return peer.id==parse64(id);}),peers.end());
+    stationDirty=true;
+    JsonDocument out;out["saved"]=true;out["removed"]=before!=peers.size();respond(200,out);
+  });
   apiOn("/api/nodes/request-id",HTTP_POST,[]{
     JsonDocument d;if(!input(d))return;String id=d["id"]|"";
     if(!parseHex(id,16) || !parse64(id) || parse64(id)==nodeId){error(400,"Choose another valid node ID");return;}

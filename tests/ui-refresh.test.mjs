@@ -13,7 +13,7 @@ function harness(){
   let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
   const context=vm.createContext({document:{querySelectorAll(){return [];}},updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,canHumanAcknowledge,canResendForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value,className)=>({...element(),tag,value,className}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>{calls.push('traffic');if(vm.runInContext('selectedForm && openRecord',context))context.renderForm({...record,body:record.meta.state==='stored'?record.body:undefined});},loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
   const originalApi=context.api;context.api=async(path,body)=>path==='time'?(calls.push({path,body}),{saved:true}):originalApi(path,body);
-  vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();const identityRequests=new Map();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
+  vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();const identityRequests=new Map();const forgettingNodes=new Set();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
   return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};
 }
 
@@ -297,4 +297,35 @@ test('Request ID is disabled when TX is off and recovers after request failure',
  h.update({txEnabled:true});await h.poll();const identify=h.$('#node-list').children[1].children.find(e=>e.label==='Request ID');assert.equal(identify.disabled,false);
  h.context.api=async()=>{throw Error('Queue full');};await assert.rejects(identify.onclick(),/Queue full/);
  assert.equal(h.$('#node-list').children[1].children.find(e=>e.label==='Request ID').disabled,false);
+});
+
+test('Hide offline nodes filters remote rows, retains this radio, and saves the device preference',async()=>{
+ const h=harness();h.update({peers:[{id:'online',callsign:'LIVE',online:true},{id:'offline',callsign:'QUIET',online:false}]});await h.poll();
+ assert.equal(h.$('#node-list').children.length,3);const saves=[];h.context.db=async(...args)=>saves.push(args);
+ h.$('#hide-offline-nodes').checked=true;await h.$('#hide-offline-nodes').onchange();
+ assert.equal(h.$('#node-list').children.length,2);assert.match(h.$('#nodes-summary').textContent,/1 other nodes shown · 1 offline hidden/);
+ assert.equal(saves[0][0],'settings');assert.equal(saves[0][1],'put');assert.equal(saves[0][2].id,'nodes-hide-offline');assert.equal(saves[0][2].value,true);
+ assert(!h.$('#node-list').children[0].children.some(e=>e.label==='Forget node'));
+ h.update({companionConnected:false,peers:[{id:'online',callsign:'LIVE',online:false},{id:'offline',callsign:'QUIET',online:false}]});await h.poll();assert.equal(h.$('#node-list').children.length,1);
+ h.$('#hide-offline-nodes').checked=false;await h.$('#hide-offline-nodes').onchange();assert.equal(h.$('#node-list').children.length,3);
+ assert(h.$('#node-list').children[1].children.find(e=>e.label==='Forget node').disabled);
+});
+
+test('Forget node shows busy immediately, coalesces clicks, clears one peer and permits packet rediscovery',async()=>{
+ const h=harness(),peers=[{id:'2222222222222222',callsign:'OLD',online:false},{id:'3333333333333333',callsign:'LIVE',online:true}];h.update({txEnabled:false,peers});await h.poll();
+ let release,requests=0;const original=h.context.api;h.context.api=(path,body)=>path==='nodes/forget'?(requests++,assert.equal(body.id,peers[0].id),new Promise(resolve=>{release=()=>{h.update({peers:[peers[1]]});resolve({saved:true});};})):original(path,body);
+ const forget=h.$('#node-list').children[1].children.find(e=>e.label==='Forget node');assert.equal(forget.disabled,false);const pending=forget.onclick();
+ assert(h.$('#node-list').children[1].children.find(e=>e.label==='Forgetting…').disabled);
+ await h.context.forgetNode(peers[0].id);assert.equal(requests,1);release();await pending;
+ assert.equal(h.$('#node-list').children.length,2);assert(h.$('#node-list').children[1].children.some(e=>e.value==='LIVE'));assert(h.calls.some(c=>typeof c==='string'&&c.includes('Node forgotten')));
+ h.update({peers});await h.poll();assert.equal(h.$('#node-list').children.length,3);
+});
+
+test('forget failure keeps the peer and restores its button; source changes protect the new radio list',async()=>{
+ const h=harness(),peers=[{id:'2222222222222222',callsign:'KEEP',online:true}];h.update({peers});await h.poll();
+ const original=h.context.api;h.context.api=async()=>{throw Error('Disconnected');};await assert.rejects(h.context.forgetNode(peers[0].id),/Disconnected/);
+ assert.equal(h.$('#node-list').children[1].children.find(e=>e.label==='Forget node').disabled,false);
+ let release;h.context.api=(path,body)=>path==='nodes/forget'?new Promise(resolve=>{release=resolve;}):original(path,body);
+ const pending=h.context.forgetNode(peers[0].id);h.update({node:'another-radio',peers});await h.poll();release({saved:true});await pending;
+ assert.equal(h.$('#node-list').children.length,2);assert(h.$('#node-list').children[1].children.some(e=>e.value==='KEEP'));
 });

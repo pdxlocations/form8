@@ -106,3 +106,7 @@ No. Only receiving stations can human-acknowledge a form. Its originating node i
 ## Why does Nodes show “Callsign unknown”?
 
 You have heard a packet carrying that node’s ID but have not heard its station announcement. Announcements send the callsign at startup, on incident join/radio reconfiguration, and every **60–65 minutes**. Use **Nodes → Request ID** to ask it to announce now. Both radios need transmission On, a saved callsign, and updated firmware; required relays must also support ID requests. The list updates automatically when its reply arrives. Requests and replies are limited to once per 30 seconds; an offline/out-of-range node will not answer.
+
+## How do I clear offline nodes from the list?
+
+On **Nodes**, enable **Hide offline nodes** to filter them out; this choice is saved on your device. Use **Forget node** to clear an entry from the connected radio’s heard list. It does not remove messages, acknowledgments, or saved incidents and does not send a radio packet. The node reappears if another packet with its origin ID is heard. There is no Forget button for your own radio. A disconnected companion can filter its cached list, but must reconnect to forget an entry on the radio.

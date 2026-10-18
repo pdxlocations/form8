@@ -62,6 +62,12 @@ export class NrfCompanionApi {
   if(route==='status'){if(this.connected){await this.reconcile(await this.rpc('status'));if(this.now()-(this.state.lastStatusAt||0)>=60000)await this.rememberStatus();}const forms=this.state.records.filter(r=>!r.chat&&!!r.body),active=forms.filter(r=>r.meta.incident===this.status.incident),storage=await globalThis.navigator?.storage?.estimate?.();const station=structuredClone(this.status);if(!this.connected){station.gpsFresh=false;const elapsed=Math.max(0,this.now()-(this.statusAt||this.state.lastStatusAt||this.now()));if(station.location){station.location.ageMs+=elapsed;station.location.fresh=false;}for(const p of station.peers){if(Number.isFinite(p.lastHeardAgeMs))p.lastHeardAgeMs+=elapsed;if(p.location){p.location.ageMs+=elapsed;p.location.fresh=false;}}}return {...station,companionStorage:true,receiveError:this.receiveError,companionConnected:this.connected,radioReady:this.connected&&this.status.radioReady,peers:station.peers.map(p=>({...p,online:this.connected&&p.online})),storageUsed:storage?.usage||utf8(JSON.stringify(this.state)).length,storageTotal:storage?.quota||20*1048576,storageWarning:this.state.records.length>460||(storage?.usage>storage?.quota*0.9),unreadMessages:forms.filter(r=>r.meta.unread).length,outgoingMessages:active.filter(r=>r.meta.origin===this.status.node&&r.body&&!this.complete(r)).length};}
   if(route==='config'){if(!this.connected)throw new Error('Connect the radio to change settings');const s=await this.rpc('config',body);this.status=s;await this.rememberStatus();return s;}
   if(route==='time'||route==='position'){if(!this.connected)throw new Error('Radio disconnected');return this.rpc(route,body);}
+  if(route==='nodes/forget'){
+   if(!this.connected)throw new Error('Connect the radio to forget a node');
+   if(!nodePattern.test(body?.id)||body.id===ZERO||body.id===this.status.node)throw new Error('Choose another valid node ID');
+   let result;try{result=await this.rpc('forgetNode',{id:body.id});}catch(error){if(/unknown operation/i.test(error.message))throw new Error('Update the radio firmware and Android app together to forget nodes');throw error;}
+   this.status.peers=this.status.peers.filter(peer=>peer.id!==body.id);await this.rememberStatus();return result;
+  }
   if(route==='nodes/request-id'){
    if(!this.connected)throw new Error('Connect the radio to request a node ID');
    if(!nodePattern.test(body?.id)||body.id===ZERO||body.id===this.status.node)throw new Error('Choose another valid node ID');

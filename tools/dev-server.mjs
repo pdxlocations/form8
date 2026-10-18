@@ -61,6 +61,7 @@ http.createServer(async(req,res)=>{
         for(const event of history.slice(0,Math.max(0,history.length-96)))delete state.chats[event.meta.id];
         output={id,saved:true};code=201;break;
       }
+      case 'POST /api/nodes/forget':if(!/^[a-f0-9]{16}$/.test(d.id||'')||/^0+$/.test(d.id)||d.id==='0000000000000001')throw Error('Choose another valid node ID');output={saved:true,removed:(state.peers||[]).some(peer=>peer.id===d.id)};state.peers=(state.peers||[]).filter(peer=>peer.id!==d.id);break;
       case 'POST /api/nodes/request-id':if(!/^[a-f0-9]{16}$/.test(d.id||'')||/^0+$/.test(d.id)||d.id==='0000000000000001')throw Error('Choose another valid node ID');if(!state.config.txEnabled||state.config.paused)throw Error('Set Radio transmission to On before requesting an ID');output={queued:true};break;
       case 'POST /api/incident/announce':if(state.incident==='0000000000000000')throw Error('Join an incident before announcing it');if(!state.config.txEnabled||state.config.paused)throw Error('Enable radio transmission and unpause before announcing');output={queued:true};break;
       case 'POST /api/incident':{
