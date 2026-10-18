@@ -6,7 +6,7 @@ namespace form8 {
 constexpr uint32_t ACK_LISTEN_MS=3000, RETRY_INTERVAL_MS=60000;
 constexpr uint32_t RETRY_BACKOFF_MS=300000,RETRY_MAX_INTERVAL_MS=900000;
 inline uint32_t deliveryRetryDelay(unsigned attempts){
-  return attempts<4?ACK_LISTEN_MS:attempts==4?RETRY_INTERVAL_MS:attempts==5?RETRY_BACKOFF_MS:RETRY_MAX_INTERVAL_MS;
+  return attempts<=1?RETRY_INTERVAL_MS:attempts==2?RETRY_BACKOFF_MS:RETRY_MAX_INTERVAL_MS;
 }
 class DeliveryRetry {
   struct State { uint32_t due=0; uint8_t attempts=0; bool queued=false; };

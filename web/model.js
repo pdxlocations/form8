@@ -85,17 +85,17 @@ export function validateForm(form) {
   if (form.location && (!Number.isFinite(form.location.lat) || !Number.isFinite(form.location.lon) || Math.abs(form.location.lat)>90 || Math.abs(form.location.lon)>180)) throw new Error('Invalid coordinates.');
   return form;
 }
-export function receiptRows(meta, peers, self) {
-  const rows = new Map((meta.expected || []).filter(p=>p.id!==self).map(p => [p.id, {...p}]));
+export function receiptRows(meta, peers, self, includeSelf=false) {
+  const rows = new Map((meta.expected || []).filter(p=>includeSelf || p.id!==self).map(p => [p.id, {...p}]));
   for (const receipt of meta.receipts || []) {
-    if (receipt.id !== self && !rows.has(receipt.id)) rows.set(receipt.id, {id: receipt.id});
+    if ((includeSelf || receipt.id !== self) && !rows.has(receipt.id)) rows.set(receipt.id, {id: receipt.id});
   }
   if(meta.origin)rows.set(meta.origin,{...(rows.get(meta.origin)||{}),id:meta.origin});
   return [...rows.values()].map(row => {
     const origin=row.id===meta.origin;
     const peer = peers.find(p => p.id === row.id);
     const receipt = (meta.receipts || []).find(r => r.id === row.id);
-    return {...row, origin, callsign: (origin?meta.sender:'') || peer?.callsign || row.callsign || receipt?.callsign || row.id, received: origin || !!receipt, human: !!receipt?.human,
+    return {...row, origin, callsign: (origin?meta.sender:'') || peer?.callsign || row.callsign || receipt?.callsign || row.id, received: origin || !!receipt, human: !origin && !!receipt?.human,
       online: !!peer?.online, status: origin ? 'Origin' : receipt?.human ? 'Human acknowledged' : receipt ? 'Radio received' : peer?.online ? 'Pending' : 'Pending · offline'};
   });
 }
@@ -105,7 +105,7 @@ export function deliveryStatus(meta, peers, self) {
   const human=rows.filter(r=>r.human).map(r=>r.callsign);
   const directed=meta.recipient && meta.recipient!=='*';
   const targets=directed?rows.filter(r=>r.callsign===meta.recipient):rows;
-  const complete=directed?targets.some(r=>r.received):rows.length>0 && rows.every(r=>r.received);
+  const complete=directed?targets.some(r=>r.received):radio.length>0;
   const pending=targets.filter(r=>!r.received).map(r=>r.callsign);
   if(directed && !targets.length)pending.push(meta.recipient);
   const label=radio.length?`Radio ACK by ${radio.join(', ')}`:'Awaiting radio ACK';
@@ -113,7 +113,7 @@ export function deliveryStatus(meta, peers, self) {
 }
 export function manualAcknowledgments(meta, peers, self, callsign) {
   const stations=new Map();
-  for(const receipt of meta.receipts||[])if(receipt.human){
+  for(const receipt of meta.receipts||[])if(receipt.human && receipt.id!==meta.origin){
     const name=receipt.callsign || peers.find(peer=>peer.id===receipt.id)?.callsign ||
       (meta.expected||[]).find(station=>station.id===receipt.id)?.callsign ||
       (receipt.id===self?callsign:'') || receipt.id;
@@ -133,9 +133,11 @@ export function formDeliverySummary(meta, station) {
   const parts=[];
   if(radio.length)parts.push(`Radio Ack: ${radio.join(', ')}`);
   if(human.length)parts.push(`Human Ack: ${human.join(', ')}`);
-  return parts.join(' · ') || (station.paused?'Transmission paused':!station.txEnabled?'Transmission disabled':'Awaiting radio ACK');
+  return parts.join(' · ') || (station.paused||!station.txEnabled?'Radio transmission off':'Awaiting radio ACK');
 }
 
+export function canResendForm(meta,station){return !!station?.node && meta.origin===station.node && meta.incident===station.incident && station.incident!=='0000000000000000' && !!station.txEnabled && !station.paused && !!station.radioReady && station.companionConnected!==false;}
+export function canHumanAcknowledge(meta,station){return !!station?.node && !!meta.origin && meta.origin!==station.node;}
 export function canReplyToForm(meta,station) {
   if(!station?.node)return false;
   return meta.origin?meta.origin!==station.node:!!meta.sender&&meta.sender!==station.callsign;

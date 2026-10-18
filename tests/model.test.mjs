@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {crc32, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments, formDeliverySummary} from '../web/model.js';
+import {crc32, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments, formDeliverySummary, canHumanAcknowledge} from '../web/model.js';
 test('CRC matches the radio wire protocol, including UTF-8',()=>{
   assert.equal(crc32('123456789'),0xcbf43926);assert.equal(crc32('incident'),crc32(new TextEncoder().encode('incident')));
 });
@@ -24,7 +24,7 @@ test('delivery indicator excludes self and never calls an undiscovered broadcast
 test('ACK indicator identifies durable remote receipts and distinguishes human ACKs',()=>{
   const m={recipient:'*',expected:[{id:'a',callsign:'K1AAA'},{id:'b',callsign:'K1BBB'}],receipts:[{id:'self'},{id:'a',human:true}]};
   let result=deliveryStatus(m,[],'self');
-  assert.equal(result.label,'Radio ACK by K1AAA');assert.deepEqual(result.human,['K1AAA']);assert.deepEqual(result.pending,['K1BBB']);assert.equal(result.complete,false);
+  assert.equal(result.label,'Radio ACK by K1AAA');assert.deepEqual(result.human,['K1AAA']);assert.deepEqual(result.pending,['K1BBB']);assert.equal(result.complete,true);
   m.receipts.push({id:'b'});assert.equal(deliveryStatus(m,[],'self').complete,true);
 });
 test('directed messages need the addressed callsign ACK; relay receipts are visible separately',()=>{
@@ -58,8 +58,8 @@ test('sent form summary switches from waiting to radio and human ACK callsigns',
  assert.equal(formDeliverySummary(meta,station),'Radio Ack: NET-B · Human Ack: NET-B');
  meta.receipts.push({id:'self',human:true},{id:'c',callsign:'NET-C',human:true});
  assert.equal(formDeliverySummary(meta,station),'Radio Ack: NET-B, NET-C · Human Ack: NET-B, NET-A, NET-C');
- assert.equal(formDeliverySummary({receipts:[]},{...station,paused:true}),'Transmission paused');
- assert.equal(formDeliverySummary({receipts:[]},{...station,txEnabled:false}),'Transmission disabled');
+ assert.equal(formDeliverySummary({receipts:[]},{...station,paused:true}),'Radio transmission off');
+ assert.equal(formDeliverySummary({receipts:[]},{...station,txEnabled:false}),'Radio transmission off');
 });
 
 test('the original sender is labeled Origin on both sender and receiving apps, even without a receipt',()=>{
@@ -75,4 +75,11 @@ test('the original sender is labeled Origin on both sender and receiving apps, e
  meta.receipts=[{id:'sender',human:true},{id:'other',callsign:'NET-B',human:false}];
  assert.equal(receiptRows(meta,[],'receiver')[0].status,'Origin');
  assert.deepEqual(deliveryStatus(meta,[],'receiver').radio,['NET-B']);
+});
+
+
+test('origin cannot human-ACK and historical origin ACKs are hidden from matrix and summary',()=>{
+ const meta={origin:'self',sender:'OLD-CALL',receipts:[{id:'self',human:true},{id:'other',human:true}]},station={node:'self',callsign:'NEW-CALL'};
+ assert.equal(canHumanAcknowledge(meta,station),false);assert.equal(canHumanAcknowledge({origin:'other'},station),true);assert.equal(canHumanAcknowledge({},station),false);
+ assert.equal(receiptRows(meta,[],'self',true).find(r=>r.origin).human,false);assert.deepEqual(manualAcknowledgments(meta,[],'self','NEW-CALL'),['other']);
 });

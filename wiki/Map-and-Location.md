@@ -25,7 +25,7 @@ A connected, visible client refreshes phone location at most once per minute. A 
 
 The first fresh position is queued when transmission is allowed and an incident is active, then once per chosen interval. Starting/joining an incident or saving radio configuration restarts this schedule. There is up to five seconds of random queue delay, plus channel/congestion delay. There are no position ACKs or delivery retries. Lost positions recover with the next report. A full local queue retries after two seconds; a queued position expires after two minutes or when its fix age plus local queue time exceeds two minutes. Only the latest unsent local position is kept.
 
-Position sharing requires a saved callsign, an active incident, **Enable radio transmission**, and **Pause all radio transmission** off. These controls also apply to relays. Position packets are separate from forms/chat and do not add unread or queued-message counts. Unchecking your position sharing stops originating your reports; it does not stop relaying other stations' packets.
+Position sharing requires a saved callsign, an active incident, **Radio transmission** set to **On**. These controls also apply to relays. Position packets are separate from forms/chat and do not add unread or queued-message counts. Unchecking your position sharing stops originating your reports; it does not stop relaying other stations' packets.
 
 Positions are **plaintext and unauthenticated**, just like other Form8 traffic. All participating nodes need updated firmware to receive and relay the new position packet type. The map only lists peer positions in the radio's current incident, not every station that might be reachable. Switching incidents clears buffered traffic from the previous incident.
 

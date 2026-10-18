@@ -4,7 +4,7 @@
 
 1. Open **Chat** and type a short message, such as `At the staging area 👩🏽‍🚒`.
 2. Keep it within **200 UTF-8 bytes**, using the live counter below the text box. Emoji are supported; for example, `👍` uses four bytes. The limit applies to your text, not its radio metadata.
-3. Click **Send chat**. The message is saved on your radio and sent when radio transmission is enabled and unpaused.
+3. Click **Send chat**. The message is saved on your radio and sent when Radio transmission is set to On.
 4. Check the delivery line below the message: **Awaiting radio ACK** changes to **Radio ACK: CALLSIGN…** as other radios confirm that they saved it. An ACK is a radio receipt, not proof that a person read it or that every incident node received it.
 5. Click **Reply** below a message to link your answer to it. Click **Cancel reply** to send a new message instead. An older reply target may show only its ID if it has left this radio's history.
 6. Use **React** to choose 👍, 👎, ❤️, ✅, ❓, 🚨, or 👀. Click your highlighted reaction to remove it. Reaction buttons show counts; their tooltips list callsigns and the radio-ACK state of your own reaction.

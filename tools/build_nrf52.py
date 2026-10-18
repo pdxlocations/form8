@@ -92,7 +92,7 @@ def main():
         'Do not use ESP32 web flashing or upload a filesystem image for these boards.\n'
         'Android app: Settings > Radio connection > Bluetooth or USB serial > Find radios > Connect.\n'
         'The app stores message bodies. Keep it open for reception, radio ACKs, repair, and retries.\n'
-        'Without the app, the node retains settings and relays its selected incident; it cannot durably receive forms.\n'
+        'Without the app, the node retains settings and can relay its selected incident if packet relaying is enabled (off by default); it cannot durably receive forms.\n'
         'T1000-E normally connects over BLE; its magnetic cable is not a general USB CDC data port.\n'
         'Guide: https://github.com/pdxlocations/form8/wiki/nRF52-and-Android\n')
     packaged.extend([dest/'SHA256SUMS-NRF52', dest/'README-NRF52.txt'])

@@ -1,11 +1,14 @@
 import {UnreadTracker,setNavBadge} from './unread.js';
 import {createMapPanel} from './map.js';
 import {PositionClient,deviceLocation,locationPayload} from './position-client.js';
-import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, formDeliverySummary, canReplyToForm, formReplyDraft, manualAcknowledgments, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
+import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, formDeliverySummary, canReplyToForm, canHumanAcknowledge, canResendForm, formReplyDraft, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
 const $ = selector => document.querySelector(selector);
 let status = null, offset = 0, total = 0, draftTimer, locationData = null, settingsLoaded = false, boundIncident = '';
 let messageNeighbors = {previous:null,next:null};
 let selectedForm = null, polling = null, settingsDirty = false, displayedRecord = '';
+let openRecord=null, openingForm=null;
+const resendingForms=new Set();
+let formSubmitting=false;
 let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;
 const form = $('#form8');
 const database = new Promise((resolve, reject) => {
@@ -76,6 +79,7 @@ function refreshFormFeedback(meta) {
   const e=$('#feedback');
   if(e.dataset.form!==`${status?.node}/${meta.id}`)return;
   e.textContent=`Form ${meta.id.slice(-8)} saved to ${status.companionStorage?'companion':'radio'} · ${formDeliverySummary(meta,status)}.`;
+  if(!formSubmitting)formSendStatus(e.textContent);
 }
 function run(fn) { return async event => { try { await fn(event); } catch(error) { feedback(error.message, true); } }; }
 function text(tag, value, className) { const el=document.createElement(tag);el.textContent=value;if(className)el.className=className;return el; }
@@ -95,7 +99,7 @@ function showTab(tab) {
   for(const e of document.querySelectorAll('main > .panel'))e.hidden=e.id!==tab;
   for(const b of document.querySelectorAll('nav button')){const selected=b.dataset.tab===tab;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));}
   updateNavigationBadges();
-  if(tab==='map')mapPanel.show();
+  if(tab==='map')mapPanel.show();if(tab==='nodes')renderNodes();
   if(tab==='chat')run(loadChatMessages)();if(tab==='traffic')run(loadTraffic)();if(tab==='incidents')run(loadIncidents)();if(tab==='archive')run(loadArchives)();
 }
 for(const b of document.querySelectorAll('nav button'))b.onclick=()=>showTab(b.dataset.tab);
@@ -144,16 +148,40 @@ form.oninput=()=>{counts();$('#draft-state').textContent='Saving…';clearTimeou
 form.elements.addressMode.onchange=()=>{form.elements.recipient.disabled=form.elements.addressMode.value==='broadcast';};
 for(const name of ['lat','lon'])form.elements[name].addEventListener('input',()=>{locationData=null;counts();});
 $('#new-draft').onclick=run(async()=>{clearTimeout(draftTimer);await saveDraft();fill();await saveDraft();});
+function formSendStatus(message,busy=false,error=false) {
+  for(const selector of ['#form-send-status','#traffic-send-status']){
+    const e=$(selector);e.hidden=!message;e.textContent=message;e.classList.toggle('error',error);
+    e.classList.toggle('sending',busy);
+  }
+  const send=$('#form-send');send.disabled=busy||formSubmitting;send.textContent=busy?'Sending…':formSubmitting?'Saved to radio':'Send to radio queue';
+  form.setAttribute('aria-busy',String(busy||formSubmitting));
+}
 form.onsubmit=run(async event=>{
-  event.preventDefault();clearTimeout(draftTimer);await saveDraft();const d=validateForm(values());
-  if(!status || status.incident==='0000000000000000')throw new Error('Connect to a radio and join an incident before submitting. Your draft is saved.');
-  // Bind the draft before submission so reconnecting to a different incident cannot
-  // accidentally submit it there after an ambiguous HTTP response.
-  if(d.boundIncident && d.boundIncident!==status.incident)throw new Error('This draft is bound to another incident. Join that incident before submitting.');
-  d.boundIncident=status.incident;await db('drafts','put',{id:d.clientToken,form:d,savedAt:Date.now()});
-  boundIncident=d.boundIncident;
-  const result=await api('forms',d);await db('drafts','delete',d.clientToken);fill();await saveDraft();
-  feedback(`Form ${result.id.slice(-8)} saved to ${status.companionStorage?'companion':'radio'}${status.paused?' · transmission paused':!status.txEnabled?' · transmission disabled': ' · awaiting radio ACK'}.`);$('#feedback').dataset.form=`${status.node}/${result.id}`;showTab('traffic');await openForm(result.id);await poll();
+  event.preventDefault();if(formSubmitting)return;
+  formSubmitting=true;clearTimeout(draftTimer);
+  // Paint feedback before the first storage or radio await, including on Traffic.
+  formSendStatus('Sending to radio…',true);
+  const target=status?{node:status.node,incident:status.incident,companionStorage:status.companionStorage}:null;
+  let confirmed=false;
+  try {
+    const snapshot=values();await saveDraft();const d=validateForm(snapshot);
+    if(!target || target.incident==='0000000000000000')throw new Error('Connect to a radio and join an incident before submitting. Your draft is saved.');
+    // Bind before sending; retries retain the same token after an ambiguous response.
+    if(d.boundIncident && d.boundIncident!==target.incident)throw new Error('This draft is bound to another incident. Join that incident before submitting.');
+    d.boundIncident=target.incident;await db('drafts','put',{id:d.clientToken,form:d,savedAt:Date.now()});
+    boundIncident=d.boundIncident;
+    if(status?.node!==target.node || status?.incident!==target.incident)throw new Error('Radio or incident changed. Your draft is saved; reconnect before sending.');
+    const result=await api('forms',d);confirmed=true;
+    const message=`Form ${result.id.slice(-8)} saved to ${target.companionStorage?'companion':'radio'}${status?.paused||!status?.txEnabled?' · radio transmission off':' · awaiting radio ACK'}.`;
+    formSendStatus(message);feedback(message);$('#feedback').dataset.form=`${target.node}/${result.id}`;
+    await db('drafts','delete',d.clientToken);fill();await saveDraft();
+    if(status?.node===target.node && status?.incident===target.incident){showTab('traffic');await openForm(result.id);await poll();}
+  } catch(error) {
+    formSendStatus(confirmed?'Message saved. Could not finish refreshing; refresh Traffic to view it.':`Send not confirmed. Your draft is kept. ${error.message}`,false,true);
+    throw error;
+  } finally {
+    formSubmitting=false;$('#form-send').disabled=false;$('#form-send').textContent='Send to radio queue';form.setAttribute('aria-busy','false');
+  }
 });
 $('#phone-location').onclick=run(async()=>{
   const button=$('#phone-location'),label=button.textContent;
@@ -321,6 +349,25 @@ $('#chat-form').onsubmit=run(async event=>{
     feedback(`Chat saved to ${status?.companionStorage?'companion':'radio'}. Delivery receipts will appear in Chat.`);await loadChatMessages();
   }finally {chatSending=false;chatControls();}
 });
+function renderNodes() {
+  const list=$('#node-list');list.replaceChildren();if(!status)return;
+  const own={id:status.node,callsign:status.callsign,incident:status.incident,name:status.incidentName,own:true};
+  const nodes=[own,...[...(status.peers||[])].sort((a,b)=>(a.lastHeardAgeMs??Infinity)-(b.lastHeardAgeMs??Infinity))];
+  for(const node of nodes){
+    const row=text('article','','node-card');
+    row.append(text('strong',`${node.callsign||'Callsign unknown'}${node.own?' · This radio':''}`),text('p',`Node ID ${node.id}`,'muted'));
+    row.append(text('p',!node.incident||node.incident==='0000000000000000'?'No incident selected':`${node.name||'Incident name unknown'} · Incident ID ${node.incident}`));
+    if(node.own){row.append(text('p',status.companionConnected===false?'Disconnected':`Connected · Relaying ${(status.relayEnabled??false)?'on':'off'}`,'muted'));}
+    else{
+      const age=Number.isFinite(node.lastHeardAgeMs)?Math.max(0,node.lastHeardAgeMs):null;
+      const ago=age===null?'Time unavailable':age<1000?'just now':age<60000?`${Math.floor(age/1000)}s ago`:age<3600000?`${Math.floor(age/60000)}m ago`:`${Math.floor(age/3600000)}h ago`;
+      const when=age===null?'':` · ${new Date(Date.now()-age).toLocaleString()}`;
+      row.append(text('p',`${node.online?'Online':'Offline'} · Last heard ${ago}${when}`,'muted'));
+      row.append(text('p',Number.isFinite(node.rssi)&&Number.isFinite(node.snr)?`RSSI ${node.rssi.toFixed(1)} dBm · SNR ${node.snr.toFixed(1)} dB · ${node.relayed?'Forwarded packet · Last hop':'Last hop'}`:'RSSI / SNR unavailable','muted'));
+    }
+    list.append(row);
+  }
+}
 function poll() {
   if(polling)return polling;
   polling=refreshScreen().finally(()=>{polling=null;});
@@ -347,11 +394,11 @@ async function refreshScreen() {
   try {
     const next=await api('status');
     const reconnected=!status;
-    if(status && (status.node!==next.node || status.incident!==next.incident)){offset=0;selectedForm=null;displayedRecord='';setTrafficView();resetChat();}
-    status=next;updateNavigationBadges();
-    positionClient.update(next.companionConnected===false?null:next);mapPanel.update(next);
+    if(status && (status.node!==next.node || status.incident!==next.incident)){offset=0;selectedForm=null;displayedRecord='';openRecord=null;openingForm=null;setTrafficView();resetChat();}
+    status=next;updateNavigationBadges();for(const b of document.querySelectorAll('[data-announce]'))b.disabled=!canAnnounce();
+    positionClient.update(next.companionConnected===false?null:next);mapPanel.update(next);renderNodes();
     chatControls();
-    $('#connection').textContent=next.companionConnected===false?'Radio disconnected · companion data available':next.simulated?'Simulation · no RF':next.paused?'Connected · TX paused':!next.txEnabled?'Connected · TX disabled':'Connected to radio';
+    $('#connection').textContent=next.companionConnected===false?'Radio disconnected · companion data available':next.simulated?'Simulation · no RF':next.paused||!next.txEnabled?'Connected · Radio transmission off':'Connected to radio';
     await syncRadioTime(next,reconnected);
     $('#active-name').textContent=next.incidentName||'Choose an incident';
     $('#incident-id').textContent=next.incident==='0000000000000000'?'No incident selected':`Incident ID ${next.incident}`;
@@ -369,7 +416,8 @@ async function refreshScreen() {
     $('#tx-power-help').textContent=`Range: ${powerMin}–${powerMax} dBm${next.powerIsDrive?'. Heltec V4 adds external amplification; this value is the SX1262 chip setting, not final antenna output.':'.'}`;
     if(!settingsLoaded || !settingsDirty){
       const f=$('#radio-settings');for(const key of ['callsign','primary','backup','bandwidth','sf','cr','power'])f.elements[key].value=String(next[key]);
-      for(const key of ['useBackup','txEnabled','paused'])f.elements[key].checked=next[key];
+      for(const key of ['useBackup','relayEnabled'])f.elements[key].checked=key==='relayEnabled'?(next[key]??false):next[key];
+      f.elements.transmission.value=next.txEnabled&&!next.paused?'on':'off';
       f.elements.positionEnabled.checked=next.positionEnabled??true;f.elements.positionMinutes.value=String((next.positionInterval||600)/60);
       settingsLoaded=true;
     }
@@ -382,7 +430,7 @@ async function refreshScreen() {
     }
     if(!$('#traffic').hidden){
       updates.push(loadTraffic());
-      if(selectedForm){const id=selectedForm;updates.push(api(`form?id=${id}`).then(record=>{if(selectedForm===id)renderForm(record);}));}
+      if(selectedForm && !openRecord && !openingForm){const id=selectedForm;updates.push(api(`form?id=${id}`).then(record=>{if(selectedForm===id)renderForm(record);}));}
     }
     updates.push(loadChatMessages());
     if(!$('#incidents').hidden)updates.push(loadRetainedIncidents());
@@ -391,23 +439,15 @@ async function refreshScreen() {
     return true;
   }catch(error){status=null;positionClient.update(null);$('#connection').textContent='Radio disconnected · drafts available';return false;}
 }
-function deliveryIndicator(m) {
-  const delivery=deliveryStatus(m,status?.peers||[],status?.node);
-  const block=text('div','','delivery '+(delivery.radio.length?'acked':'pending'));
-  block.append(text('strong',delivery.label));
-  if(delivery.pending.length)block.append(text('p',`Pending: ${delivery.pending.join(', ')}`));
-  else if(!delivery.radio.length)block.append(text('p','No remote station has acknowledged yet.'));
-  return block;
-}
 function renderReceipts(m) {
   const container=$('#delivery-detail');if(!container)return;
-  container.replaceChildren(deliveryIndicator(m));
-  const acknowledged=manualAcknowledgments(m,status?.peers||[],status?.node,status?.callsign);
-  const human=text('div','',`delivery ${acknowledged.length?'acked':'pending'}`);
-  human.append(text('strong',`Human Ack: ${acknowledged.length?acknowledged.join(', '):'None yet'}`));
-  container.append(human);
-  const table=document.createElement('table'),head=document.createElement('tr');for(const title of ['Station','Receipt'])head.append(text('th',title));table.append(head);
-  for(const r of receiptRows(m,status?.peers||[],status?.node)){const tr=document.createElement('tr');tr.append(text('td',r.callsign),text('td',r.status));table.append(tr);}
+  container.replaceChildren();
+  const table=document.createElement('table');table.className='receipt-matrix';
+  const head=document.createElement('tr');for(const title of ['Station','Radio','Human']){const th=text('th',title);th.setAttribute('scope','col');head.append(th);}table.append(head);
+  for(const r of receiptRows(m,status?.peers||[],status?.node,true)){
+    const tr=document.createElement('tr'),kind=r.origin?'origin':r.received?'radio':r.online?'pending':'offline';
+    tr.append(text('td',r.id===status?.node&&!r.origin?(status.callsign||r.callsign):r.callsign),text('td',r.origin?'Origin':r.received?'Received':r.online?'Pending':'Pending · offline',`receipt-${kind}`),text('td',r.human?'Acknowledged':'—',r.human?'receipt-human':'receipt-none'));table.append(tr);
+  }
   container.append(table);
 }
 async function loadTraffic() {
@@ -415,6 +455,11 @@ async function loadTraffic() {
   const result=await api(`forms?offset=${offset}${all?'&all=1':''}${$('#show-removed').checked?'&history=1':''}${selected?`&selected=${selected}`:''}`);
   if(selected!==selectedForm || all!==$('#all-incidents').checked)return;
   total=result.total;offset=result.offset;
+  if(selected && openRecord?.meta.id===selected){
+    const meta=result.forms.find(m=>m.id===selected);
+    if(meta && meta.hash===openRecord.meta.hash && (meta.state!=='stored' || openRecord.body))renderForm({meta,body:meta.state==='stored'?openRecord.body:undefined});
+    else {const record=await api(`form?id=${selected}`);if(selectedForm===selected)renderForm(record);}
+  }
   messageNeighbors={previous:result.previous||null,next:result.next||null};renderMessageNavigation();
   const list=$('#traffic-list');list.replaceChildren();
   for(const m of result.forms){
@@ -424,20 +469,30 @@ async function loadTraffic() {
     if(m.unread)heading.append(text('span','Unread','badge'));
     description.append(heading,text('p',`From: ${m.from||'—'} · To: ${m.to||'—'}`,'traffic-addresses'),text('p',`${m.sender} → ${m.recipient==='*'?'Broadcast':m.recipient} · ${m.state}`));
     const delivery=deliveryStatus(m,status?.peers||[],status?.node),receipt=text('span',delivery.complete?'Radio ACK':'Pending ACK','traffic-receipt'+(delivery.complete?' acked':''));receipt.title=delivery.label;
-    row.append(description,receipt,button('Open',()=>openForm(m.id)));list.append(row);
+    const actions=text('div','','traffic-actions');actions.append(button('Open',()=>openForm(m.id)));
+    if(m.state==='stored')actions.append(messageCleanupButton('Archive',m,archiveMessage),messageCleanupButton('Remove…',m,removeMessage,'danger'));
+    row.append(description,receipt,actions);list.append(row);
   }
   if(!result.forms.length)list.append(text('p','No forms in this view.','muted'));
   $('#page-label').textContent=`${total?offset+1:0}–${Math.min(offset+20,total)} of ${total}`;
   $('#previous-page').disabled=offset===0;$('#next-page').disabled=offset+20>=total;
 }
 async function openForm(id) {
-  selectedForm=id;messageNeighbors={previous:null,next:null};renderMessageNavigation();
-  const record=await api(`form?id=${id}`);
-  if(selectedForm!==id)return;
-  await api('read',{id});
-  if(selectedForm!==id)return;
-  displayedRecord='';renderForm(record);
-  await poll();
+  const node=status?.node,request={id,node};
+  selectedForm=id;openRecord=null;openingForm=request;displayedRecord='';messageNeighbors={previous:null,next:null};
+  setTrafficView();$('#form-detail').replaceChildren(text('p','Opening message…','muted'));$('#form-detail').hidden=false;
+  try{
+    const record=await api(`form?id=${id}`);
+    if(selectedForm!==id || status?.node!==node || openingForm!==request)return;
+    renderForm(record); // Show the form before waiting for its durable read marker.
+    try{await api('read',{id});}catch(error){throw new Error(`Message opened, but its read status could not be saved: ${error.message}`);}
+    if(selectedForm!==id || status?.node!==node)return;
+    await poll();
+  }catch(error){
+    if(selectedForm!==id || status?.node!==node)return;
+    if(!openRecord)$('#form-detail').replaceChildren(text('p','Could not open this message. Use Back and try again.','muted'));
+    throw error;
+  }finally{if(openingForm===request)openingForm=null;}
 }
 async function replyToForm(record) {
   try {
@@ -456,9 +511,10 @@ async function replyToForm(record) {
   }
 }
 function renderForm(record) {
+  openRecord=record;
   refreshFormFeedback(record.meta);
   setTrafficView();
-  const signature=JSON.stringify(record);
+  const signature=JSON.stringify({record,canResend:canResendForm(record.meta,status),resending:resendingForms.has(record.meta.id)});
   if(signature===displayedRecord){renderReceipts(record.meta);return;}
   displayedRecord=signature;
   const m=record.meta,id=m.id,detail=$('#form-detail');detail.replaceChildren();detail.hidden=false;
@@ -481,27 +537,66 @@ function renderForm(record) {
       await poll();
     });
     acknowledge.disabled=acknowledged;
-    actions.append(acknowledge);
+    if(canHumanAcknowledge(m,status))actions.append(acknowledge);
+    if(m.origin===status?.node){
+      const resend=button(resendingForms.has(id)?'Resending…':'Resend',async()=>{
+        if(resendingForms.has(id))return;
+        resendingForms.add(id);resend.disabled=true;resend.textContent='Resending…';
+        try{await api('resend',{id});feedback('Original message queued for resend. Existing receipts are kept.');await poll();}
+        finally{resendingForms.delete(id);resend.textContent='Resend';resend.disabled=!canResendForm(m,status);}
+      });
+      resend.disabled=!canResendForm(m,status)||resendingForms.has(id);
+      resend.title='Resend the original form with the same ID and contents. Join its incident and turn Radio transmission On first.';
+      actions.append(resend);
+    }
     if(canReplyToForm(m,status))actions.append(button('Reply',()=>replyToForm(record)));
     actions.append(button('Correction',async()=>{
       await saveDraft();const corrected={...d,clientToken:token(),parent:id,subject:`Correction: ${d.subject||''}`.slice(0,160)};delete corrected.boundIncident;fill(corrected);await saveDraft();showTab('compose');
     }));detail.append(actions);
     const storage=text('section','','message-storage');storage.append(text('h4','Archive or remove'),text('p',`Archive keeps a verified copy on this device. Remove takes the message out of Traffic on ${localStoreName()}. Other nodes keep their copies.`,'muted'));
     const cleanup=text('div','','actions');
-    cleanup.append(button('Archive on this device',async()=>{
-      if(!confirm(`Save a verified copy in Archive on this device, then remove the message from Traffic on ${localStoreName()}? Other nodes keep their copies.`))return;
-      verifyArchive(record);await db('archives','put',{...record,id:m.id,archivedAt:Date.now()});
-      verifyArchive(await db('archives','get',m.id));await api('offload',{id,mode:'archive',hash:m.hash,verified:true});
-      await backToTraffic();await poll();feedback('Saved in Archive on this device and removed from Traffic.');
-    }),button('Remove message…',async()=>{
-      if(!confirm(`Remove this message from ${localStoreName()} without saving an archive? This cannot be undone here. Other nodes and existing archives keep their copies.`))return;
-      await api('offload',{id,mode:'discard'});await backToTraffic();await poll();feedback(`Message removed from ${localStoreName()}. Other nodes and saved archives are unchanged.`);
-    },'danger'));storage.append(cleanup);detail.append(storage);
+    cleanup.append(messageCleanupButton('Archive on this device',m,archiveMessage),messageCleanupButton('Remove message…',m,removeMessage,'danger'));storage.append(cleanup);detail.append(storage);
   }else {
     detail.append(text('p',m.state==='archived'?'This message was archived on the device that saved it. Its body has been removed from Traffic.':'This message was removed locally. Other nodes may still have a copy.','muted'));
     if(m.state==='archived')detail.append(button('Open device archive',()=>showTab('archive')));
   }
   const delivery=text('div','');delivery.id='delivery-detail';delivery.setAttribute('aria-live','polite');detail.append(delivery);renderReceipts(m);
+}
+const messageCleanupPending=new Set();
+function messageCleanupButton(label,meta,action,kind='secondary'){
+  const control=button(label,async()=>{
+    control.disabled=true;try{await action(meta);}finally{control.disabled=messageCleanupPending.has(meta.id);}
+  },kind);
+  control.disabled=messageCleanupPending.has(meta.id);return control;
+}
+async function refreshAfterMessageCleanup(id){
+  if(offset>0 && offset>=total-1)offset=Math.max(0,offset-20);
+  if(selectedForm===id)await backToTraffic();else await loadTraffic();
+  await poll();
+}
+async function archiveMessage(meta){
+  if(messageCleanupPending.has(meta.id))return;
+  messageCleanupPending.add(meta.id);const node=status?.node;
+  try{
+    if(!confirm(`Archive “${meta.subject||'this message'}” on this device and remove it from Traffic on ${localStoreName()}? Other nodes keep their copies.`))return;
+    const record=await api(`form?id=${meta.id}`);
+    if(record.meta?.id!==meta.id || typeof record.body!=='string')throw new Error('This message changed or was already removed. Refresh Traffic and try again.');
+    verifyArchive(record);
+    await db('archives','put',{...record,id:meta.id,archivedAt:Date.now()});
+    verifyArchive(await db('archives','get',meta.id));
+    if(status?.node!==node)throw new Error('Connection changed. The archive was kept, but the original message was not removed.');
+    await api('offload',{id:meta.id,mode:'archive',hash:record.meta.hash,verified:true});
+    await refreshAfterMessageCleanup(meta.id);feedback('Saved in Archive on this device and removed from Traffic.');
+  }finally{messageCleanupPending.delete(meta.id);}
+}
+async function removeMessage(meta){
+  if(messageCleanupPending.has(meta.id))return;
+  messageCleanupPending.add(meta.id);
+  try{
+    if(!confirm(`Remove “${meta.subject||'this message'}” from ${localStoreName()} without saving an archive? This cannot be undone here. Other nodes and existing archives keep their copies.`))return;
+    await api('offload',{id:meta.id,mode:'discard'});
+    await refreshAfterMessageCleanup(meta.id);feedback(`Message removed from ${localStoreName()}. Other nodes and saved archives are unchanged.`);
+  }finally{messageCleanupPending.delete(meta.id);}
 }
 function localStoreName(){return status?.companionStorage?'this app':'this node';}
 function setTrafficView() {
@@ -515,7 +610,7 @@ function renderMessageNavigation() {
   $('#next-message').hidden=!selectedForm || !messageNeighbors.next;
 }
 async function backToTraffic() {
-  selectedForm=null;displayedRecord='';messageNeighbors={previous:null,next:null};setTrafficView();await loadTraffic();
+  selectedForm=null;openRecord=null;openingForm=null;displayedRecord='';messageNeighbors={previous:null,next:null};setTrafficView();await loadTraffic();
 }
 $('#message-back').onclick=run(backToTraffic);
 $('#previous-message').onclick=run(async()=>{if(messageNeighbors.previous)await openForm(messageNeighbors.previous);});
@@ -542,6 +637,12 @@ async function loadIncidents() {
 async function loadRetainedIncidents() {
   const result=await api('incidents'),retained=$('#retained');retained.replaceChildren();for(const i of result.incidents)appendIncident(retained,i.name,i.id,true);
 }
+function canAnnounce(){return !!(status?.incident && status.incident!=='0000000000000000' && status.txEnabled && !status.paused && status.radioReady && status.companionConnected!==false);}
+async function announceIncident(){
+  if(!canAnnounce())throw new Error('Join an incident and set Radio transmission to On before announcing it.');
+  await api('incident/announce',{});feedback('Incident announcement queued for radio transmission.');
+}
+for(const b of document.querySelectorAll('[data-announce]'))b.onclick=run(announceIncident);
 async function leaveIncident(){
   if(!confirm('Leave the active incident? Transmission and relaying for it stop. Saved messages stay available under previous incidents.'))return;
   await api('incident/leave',{});await poll();await loadRetainedIncidents();feedback('Incident left. Saved messages are still available under previous incidents.');
@@ -555,7 +656,7 @@ async function removeIncident(name,id){
 function appendIncident(container,name,id,saved=false) {
   const row=text('div','','incident-item'),actions=text('div','','actions');
   row.append(text('div',`${name} · ${id}`));
-  if(id===status?.incident){actions.append(text('span','Active','badge'));if(saved)actions.append(button('Leave',leaveIncident));}
+  if(id===status?.incident){actions.append(text('span','Active','badge'));if(saved){const announce=button('Announce',announceIncident);announce.disabled=!canAnnounce();actions.append(announce,button('Leave',leaveIncident));}}
   else actions.append(button('Join',()=>joinIncident(name,id)));
   if(saved)actions.append(button('Remove incident…',()=>removeIncident(name,id),'danger'));
   row.append(actions);container.append(row);
@@ -592,7 +693,9 @@ $('#radio-settings').oninput=()=>{settingsDirty=true;};
 $('#radio-settings').onsubmit=run(async event=>{
   event.preventDefault();const f=event.target;const d={callsign:f.elements.callsign.value.trim().toUpperCase()};
   for(const key of ['primary','backup','bandwidth','sf','cr','power'])d[key]=Number(f.elements[key].value);
-  for(const key of ['useBackup','txEnabled','paused'])d[key]=f.elements[key].checked;
+  for(const key of ['useBackup','relayEnabled'])d[key]=f.elements[key].checked;
+  // Keep older radio APIs compatible while clearing their legacy pause override.
+  d.txEnabled=f.elements.transmission.value==='on';d.paused=false;
   d.positionEnabled=f.elements.positionEnabled.checked;d.positionInterval=Number(f.elements.positionMinutes.value)*60;
   const result=await api('config',d);settingsLoaded=false;settingsDirty=false;await poll();feedback(result.radioReady?'Station settings saved.':'Settings saved; radio initialization failed. Check modem settings.',!result.radioReady);
 });

@@ -14,8 +14,7 @@ On **both** radios, open **Radio setup** and use the same profile:
 | Coding rate | 4/8 |
 | TX power | 14 dBm |
 | Use backup preset | Unchecked |
-| Enable radio transmission | Checked |
-| Pause all radio transmission | Unchecked |
+| Radio transmission | On |
 
 Click **Save settings** on each radio. Transmission starts disabled on a fresh device. These are starting settings for testing, not a field-validated radio configuration. Radios that already have saved settings keep them after a firmware update; check the actual values on each radio.
 

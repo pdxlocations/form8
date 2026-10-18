@@ -2,8 +2,8 @@
 
 ## Keep a message on this device
 
-1. Open the message in **Traffic**.
-2. Under **Archive or remove**, choose **Archive on this device**.
+1. In **Traffic**, find the message.
+2. Click **Archive** beside **Open**. You can also open the message and choose **Archive on this device** under **Archive or remove**.
 3. Confirm. Form8 saves and verifies a copy before removing it from the normal Traffic list.
 4. Open **Device archive** to read it. Use **Export archive JSON** for a separate backup.
 
@@ -11,7 +11,7 @@ On ESP32, this frees the message body from the radio. On nRF, the message body i
 
 ## Remove a message without archiving
 
-Open it in **Traffic**, choose **Remove message…**, and confirm. It disappears from normal Traffic. Existing archives and other nodes’ copies stay intact. This action does not mark the form delivered. A small delivery record remains to prevent that message being downloaded again automatically.
+In the **Traffic** list, click **Remove…** beside **Open** and **Archive**, then confirm. You can also open the message and use **Remove message…**. It disappears from normal Traffic. Existing archives and other nodes’ copies stay intact. This action does not mark the form delivered. A small delivery record remains to prevent that message being downloaded again automatically.
 
 To review those entries, enable **Show archived and removed entries** in Traffic. Enable **Include previous incidents** to also see older incidents. You can archive or remove an older form without rejoining its incident.
 

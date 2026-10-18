@@ -2,7 +2,7 @@
 
 **Android Bluetooth:** ESP32 can also use [paired Bluetooth with automatic Wi-Fi handoff](https://github.com/pdxlocations/form8/wiki/Bluetooth). nRF52840 uses [Bluetooth or USB serial with the companion](https://github.com/pdxlocations/form8/wiki/nRF52-and-Android). The Wi-Fi instructions below apply to ESP32.
 
-The workspace uses seven icon buttons that fit across a phone screen: **pencil = Compose**, **envelope = Traffic**, **speech bubble = Chat**, **flag = Incidents**, **folded map = Map**, **archive box = Device archive**, and **gear = Radio setup**. On a computer, hover over an icon to see its name. Screen readers announce each button's name.
+The workspace uses eight icon buttons that fit across a phone screen: **pencil = Compose**, **envelope = Traffic**, **speech bubble = Chat**, **flag = Incidents**, **connected circles = Nodes**, **folded map = Map**, **archive box = Device archive**, and **gear = Radio setup**. On a computer, hover over an icon to see its name. Screen readers announce each button's name.
 
 1. Power on the radio.
 2. In your phone or laptop's Wi-Fi settings, connect to the network shown on the radio, such as `form8-abcd`.
@@ -45,3 +45,19 @@ Whenever the app connects or reconnects to a radio, it sets the radio’s clock 
 Open **Radio setup** (gear icon) and choose **Appearance**: **System (device default)**, **Light**, or **Dark**. System follows your phone or laptop's appearance setting. Your choice applies immediately to every tab and is saved in this browser on this device; you do not need to click Save settings. It works offline and does not change radio settings or send any radio traffic.
 
 For automatic GPS positioning, ten-minute position sharing, and downloading maps before going offline, see [Location sharing and offline maps](Map-and-Location).
+
+## Nodes tab
+
+Open **Nodes** (connected circles) to see this radio and up to 31 recently heard node origins, across incidents. Each entry shows callsign, node ID, last advertised incident name/ID, online status, last-heard local date/time and elapsed time, RSSI in dBm and SNR in dB. Every valid received Form8 packet updates its origin’s last-heard reading, including duplicate packets. A node is offline after 90 minutes of silence; entries stay until evicted by more recently heard nodes or the radio restarts. An unheard or out-of-range node cannot appear, and names stay unknown until an announcement arrives.
+
+RSSI/SNR measure the final radio hop of the last packet carrying that node’s origin ID. A **Forwarded packet** has passed through a relay. An unforwarded repair response can also be transmitted by another node while retaining the original sender’s ID. The protocol does not identify that physical last-hop sender, so these readings do not establish a direct signal to the listed origin. Last-heard/online likewise describe observed origin IDs, not proof that the original station is currently present. The connected radio has no self RSSI/SNR. Older firmware reports readings as unavailable; update the firmware to populate them. Refresh data and automatic UI polling do not transmit LoRa packets.
+
+**Radio setup → Enable packet relaying** defaults to off. Enable it on nodes needed to extend coverage; leave it off on nearby clients. **Incidents → Announce incident** or **Announce** beside your active saved incident queues a discovery announcement immediately, without changing incidents or replaying forms. It requires an active incident, a saved callsign, and Radio transmission set to On. Announcements occur automatically once at startup/join/reconfiguration and then every 60–65 minutes (one hour plus random jitter). Manual announcements restart that hourly timer. Other nodes need matching radio settings and a direct or enabled relay path. With hourly announcements, an otherwise idle node remains marked online for 90 minutes.
+
+See [Radio traffic](Radio-Traffic) for the reduced synchronization and form retry schedules.
+
+## Radio transmission
+
+**Radio setup → Radio transmission → On / Off** is the single control for all outgoing LoRa packets. Off stops messages, announcements, ACKs, position reports, and relays; receiving and local app access still work. Saved outgoing messages can resume when transmission is turned on. Save settings to apply the choice; it survives a restart. **Enable packet relaying** remains separate and defaults to off.
+
+Older firmware internally stores separate enable/pause flags. The new screen shows their effective state: a previously paused radio appears Off. Saving On clears the old pause override, so there is no second control to find. No nRF firmware update is needed for this UI change.

@@ -11,7 +11,9 @@
 namespace form8 {
 constexpr size_t CHUNK = 160, MAX_BODY = 4096, MAX_QUEUE = 48;
 constexpr uint8_t MAX_HOPS = 5;
+constexpr uint32_t REPAIR_RESPONSE_MIN_MS=1500, REPAIR_RESPONSE_JITTER_MS=3000, REPAIR_RECEIVE_WAIT_MS=15000;
 using Id = std::array<uint8_t, 16>;
+inline bool canHumanAcknowledge(uint64_t self,uint64_t origin){return self && origin && self!=origin;}
 inline bool emptyId(const Id& id) { return id == Id{}; }
 inline uint32_t crc32(const uint8_t* data, size_t size) {
   uint32_t c = ~0u;
@@ -27,6 +29,7 @@ inline uint32_t crc32(const std::string& s) {
 enum class Kind : uint8_t { Hello=1, Inventory=2, Request=3, Data=4, Receipt=5, HumanAck=6, Chat=7, ChatReceipt=8, Position=9 };
 inline bool dataKind(Kind kind){return kind==Kind::Data || kind==Kind::Chat;}
 struct Frame {
+  bool manual=false; // Local resend bookkeeping; never serialized.
   bool repairReply=false; // Local TX bookkeeping; never serialized on the wire.
   Kind kind = Kind::Data;
   uint8_t ttl = MAX_HOPS, priority = 0, part = 0, parts = 1;
@@ -69,7 +72,7 @@ inline std::vector<uint8_t> encode(const Frame& f) {
 }
 inline bool decode(const uint8_t* p, size_t n, Frame& f) {
   if (n<54 || n>54+CHUNK || p[0]!='F' || p[1]!='8' || p[2]!=1 || crc32(p,n-4)!=get(p+n-4,4)) return false;
-  f.repairReply=false;f.kind=static_cast<Kind>(p[3]); f.ttl=p[4]; f.priority=p[5]; f.part=p[6]; f.parts=p[7];
+  f.manual=false;f.repairReply=false;f.kind=static_cast<Kind>(p[3]); f.ttl=p[4]; f.priority=p[5]; f.part=p[6]; f.parts=p[7];
   f.origin=get(p+8,8); f.incident=get(p+16,8); std::copy(p+24,p+40,f.id.begin());
   f.nonce=get(p+40,4); f.hash=get(p+44,4); f.total=get(p+48,2);
   f.payload.assign(p+50,p+n-4); return valid(f);
@@ -103,14 +106,18 @@ struct InventoryEntry { Id id{}; uint32_t hash=0; };
 class Mesh {
   struct Queued { Frame f; uint32_t due=0, order=0, at=0; };
   struct Seen { uint32_t signature=0, at=0; bool used=false; };
-  struct Job { Record record; uint8_t next=0; uint32_t nonce=0, order=0; bool repair=false; };
+  struct Job { Record record; uint8_t next=0; uint32_t nonce=0, order=0; bool repair=false; uint32_t due=0, observed=0; bool repairRequested=false,manual=false; };
   std::array<Seen,256> seen{};
   size_t seenCursor=0;
   std::vector<Queued> queue;
   std::vector<Job> jobs;
+  // Also observe bodies while an nRF companion is fetching a repair response.
+  struct RepairWatch {Id id{};uint32_t hash=0,at=0,mask=0;uint64_t origin=0;uint16_t total=0;uint8_t parts=0;};
+  std::vector<RepairWatch> repairWatches;
   Reassembler reassembler;
   uint32_t serial=0, order=0, served=0;
   uint64_t self=0, incident=0;
+  bool relayEnabled=false;
   bool duplicate(const Frame& f,uint32_t now) {
     Frame norm=f; norm.ttl=0; auto b=encode(norm);
     uint32_t sig=crc32(b.data(),b.size()-4);
@@ -129,7 +136,11 @@ public:
   std::function<bool(const Id&,uint32_t)> humanAcknowledged;
   uint32_t dropped=0;
   explicit Mesh(uint64_t node,uint32_t bootSequence=0): serial(bootSequence),self(node) {}
-  void setIncident(uint64_t value) { incident=value; queue.clear(); jobs.clear(); reassembler=Reassembler{}; }
+  void setIncident(uint64_t value) { incident=value; queue.clear(); jobs.clear();repairWatches.clear(); reassembler=Reassembler{}; }
+  void setRelayEnabled(bool enabled) {
+    relayEnabled=enabled;
+    if(!enabled)queue.erase(std::remove_if(queue.begin(),queue.end(),[&](const Queued& q){return q.f.origin!=self && !q.f.repairReply;}),queue.end());
+  }
   uint64_t activeIncident() const { return incident; }
   size_t pending(bool includeChat=true) const {
     if(includeChat)return queue.size()+jobs.size();
@@ -137,14 +148,14 @@ public:
       std::count_if(jobs.begin(),jobs.end(),[](const Job& j){return j.record.kind!=Kind::Chat;});
   }
   bool ready(uint32_t now) const {
-    if(!jobs.empty())return true;
+    for(const auto& job:jobs)if(!job.repair || int32_t(now-job.due)>=0)return true;
     for(const auto& item:queue)if(int32_t(now-item.due)>=0)return true;
     return false;
   }
   void cancelPublish(const Id& id,bool offloaded=false) {
-    jobs.erase(std::remove_if(jobs.begin(),jobs.end(),[&](const Job& j){return j.record.id==id && (offloaded || !j.repair);}),jobs.end());
+    jobs.erase(std::remove_if(jobs.begin(),jobs.end(),[&](const Job& j){return j.record.id==id && (offloaded || (!j.repair && !j.repairRequested && !j.manual));}),jobs.end());
     queue.erase(std::remove_if(queue.begin(),queue.end(),[&](const Queued& q){
-      if(dataKind(q.f.kind) && q.f.id==id && (offloaded || !q.f.repairReply))return true;
+      if(dataKind(q.f.kind) && q.f.id==id && (offloaded || (!q.f.repairReply && !q.f.manual)))return true;
       if(offloaded && q.f.kind==Kind::Inventory && q.f.origin==self)
         for(size_t i=0;i<q.f.payload.size();i+=20)if(std::equal(id.begin(),id.end(),q.f.payload.begin()+i))return true;
       return false;
@@ -167,12 +178,27 @@ public:
   Frame control(Kind kind, const Id& id={}, uint32_t hash=0) {
     Frame f; f.kind=kind; f.origin=self; f.incident=incident; f.id=id; f.nonce=++serial; f.hash=hash; return f;
   }
-  bool publish(const Record& r,bool repair=false) {
+  bool publish(const Record& r,bool repair=false,uint32_t now=0) {
     if (!dataKind(r.kind) || r.incident!=incident || r.body.empty() || r.body.size()>(r.kind==Kind::Chat?768:MAX_BODY) || crc32(r.body)!=r.hash) return false;
-    for (auto& j:jobs) if (j.record.id==r.id) {j.repair|=repair;return true;}
+    for (auto& j:jobs) if (j.record.id==r.id) {j.repairRequested|=repair;return true;}
     if(r.kind==Kind::Chat && jobs.size()>=2)return false; // Keep body-job capacity for forms.
     if (jobs.size()>=4) { ++dropped; return false; }
-    jobs.push_back({r,0,++serial,order++,repair}); return true;
+    uint32_t due=now,observed=0;
+    if(repair){
+      due=now+REPAIR_RESPONSE_MIN_MS+uint32_t((self^serial^now)%(REPAIR_RESPONSE_JITTER_MS+1));
+      for(const auto& watch:repairWatches)if(watch.id==r.id && watch.hash==r.hash && watch.origin==r.origin && watch.total==r.body.size() && uint32_t(now-watch.at)<REPAIR_RECEIVE_WAIT_MS){
+        if(watch.mask==((1u<<watch.parts)-1))return true;
+        observed=watch.mask;due=watch.at+REPAIR_RECEIVE_WAIT_MS;
+      }
+    }
+    jobs.push_back({r,0,++serial,order++,repair,due,observed}); return true;
+  }
+  bool resend(const Record& r,uint32_t now) {
+    if(r.kind!=Kind::Data || r.origin!=self || !publish(r,false,now))return false;
+    // Coalesce with an existing transmission. Keep an explicit resend even if
+    // saved receipts already satisfy delivery; do not use repair suppression.
+    for(auto& job:jobs)if(job.record.id==r.id){job.manual=true;job.repair=false;job.due=now;}
+    return true;
   }
   bool announce(const std::string& text,uint32_t now) {
     Frame f=control(Kind::Hello); f.payload.assign(text.begin(),text.end()); f.total=f.payload.size(); return queueFrame(f,now);
@@ -195,9 +221,25 @@ public:
     if(f.kind==Kind::Data && f.repairReply && f.part+1==f.parts && humanAcknowledged && humanAcknowledged(f.id,f.hash))acknowledge(f.id,f.hash,true,now);
   }
   void receive(const uint8_t* data,size_t len,uint32_t now,uint32_t jitter=100) {
-    Frame f; if (!decode(data,len,f) || f.origin==self) return;
+    Frame f; if (!decode(data,len,f)) return;
     if (f.kind!=Kind::Hello && f.incident!=incident) return;
-    if (duplicate(f,now)) return;
+    // Delay an unsent repair while another copy is arriving. Cancel only after
+    // every fragment has been heard; incomplete transfers resume after silence.
+    if(f.kind==Kind::Data) {
+      for(auto& watch:repairWatches)if(watch.id==f.id && watch.hash==f.hash && uint32_t(now-watch.at)<30000){
+        if(watch.total && (watch.total!=f.total || watch.origin!=f.origin))continue;
+        watch.origin=f.origin;watch.total=f.total;watch.parts=f.parts;watch.mask|=1u<<f.part;watch.at=now;
+      }
+      for(auto it=jobs.begin();it!=jobs.end();) {
+        auto& j=*it;
+        if(j.repair && j.next==0 && j.record.id==f.id && j.record.hash==f.hash && j.record.origin==f.origin && j.record.incident==f.incident && j.record.body.size()==f.total) {
+          j.observed|=1u<<f.part;j.due=now+REPAIR_RECEIVE_WAIT_MS;
+          if(j.observed==((1u<<f.parts)-1)){it=jobs.erase(it);continue;}
+        }
+        ++it;
+      }
+    }
+    if (f.origin==self || duplicate(f,now)) return;
     if (f.kind==Kind::Hello) { if (hello) hello(f); }
     else if(f.kind==Kind::Position){if(position)position(f);}
     else if (f.kind==Kind::Inventory) {
@@ -207,7 +249,10 @@ public:
         else queueFrame(control(Kind::Request,id,hash),now,jitter+uint32_t(i)*20);
       }
     } else if (f.kind==Kind::Request) {
-      Record r; if (load && load(f.id,r) && r.hash==f.hash) publish(r,true);
+      repairWatches.erase(std::remove_if(repairWatches.begin(),repairWatches.end(),[&](const RepairWatch& w){return w.id==f.id || uint32_t(now-w.at)>=30000;}),repairWatches.end());
+      if(repairWatches.size()>=16)repairWatches.erase(repairWatches.begin());
+      repairWatches.push_back({f.id,f.hash,now,0,0,0,0});
+      Record r; if (load && load(f.id,r) && r.hash==f.hash) publish(r,true,now);
     } else if (f.kind==Kind::Receipt || f.kind==Kind::HumanAck) {
       if (receipt) receipt(f.id,f.origin,f.hash,f.kind==Kind::HumanAck);
     } else if(f.kind==Kind::ChatReceipt){
@@ -222,7 +267,7 @@ public:
         if (reassembler.accept(f,now,r) && save && save(r)) acknowledge(r.id,r.hash,false,now+jitter,chat);
       }
     }
-    if (f.ttl>0) { --f.ttl; queueFrame(f,now,jitter); }
+    if (relayEnabled && f.ttl>0) { --f.ttl; queueFrame(f,now,jitter); }
   }
   // Called only when the radio is ready. Every eighth selection serves the oldest
   // eligible item so emergency traffic cannot indefinitely starve repair/control.
@@ -234,13 +279,13 @@ public:
     for(size_t i=0;i<queue.size();++i) if (int32_t(now-queue[i].due)>=0 && better(queue[i].f.priority,queue[i].order)) {
       qi=i; ji=jobs.size(); best=queue[i].f.priority; age=queue[i].order;
     }
-    for(size_t i=0;i<jobs.size();++i) if (better(jobs[i].record.priority,jobs[i].order)) {
+    for(size_t i=0;i<jobs.size();++i) if ((!jobs[i].repair || int32_t(now-jobs[i].due)>=0) && better(jobs[i].record.priority,jobs[i].order)) {
       qi=queue.size(); ji=i; best=jobs[i].record.priority; age=jobs[i].order;
     }
     if(qi<queue.size()) { out=std::move(queue[qi].f); queue.erase(queue.begin()+qi); duplicate(out,now); return true; }
     if(ji<jobs.size()) {
       auto& j=jobs[ji]; auto& r=j.record;
-      out=Frame{}; out.kind=r.kind; out.repairReply=j.repair;out.origin=r.origin; out.incident=r.incident; out.id=r.id;
+      out=Frame{}; out.kind=r.kind; out.manual=j.manual;out.repairReply=j.repair;out.origin=r.origin; out.incident=r.incident; out.id=r.id;
       out.hash=r.hash; out.priority=r.priority; out.total=r.body.size(); out.parts=(r.body.size()+CHUNK-1)/CHUNK;
       out.part=j.next++; out.nonce=j.nonce;
       size_t start=size_t(out.part)*CHUNK, end=std::min(r.body.size(),start+CHUNK);

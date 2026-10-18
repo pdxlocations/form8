@@ -6,9 +6,9 @@ Check in this order:
 
 1. Confirm both radios run Form8 firmware, rather than the simulator or another mesh protocol.
 2. Under **Radio setup**, compare the actual frequency, bandwidth, spreading factor, coding rate, and backup selection on both radios.
-3. Confirm each has a saved callsign, **Enable radio transmission** checked, and **Pause all radio transmission** unchecked.
+3. Confirm each has a saved callsign, **Radio transmission** set to **On**.
 4. Compare the full **Incident ID** in both headers. Matching incident names are not enough.
-5. Click **Refresh data**. Give periodic announcements time to arrive; routine announcements repeat every 2–2½ minutes when transmission is allowed. A new/restarted node normally prompts an earlier discovery response, subject to a 30-second response cooldown.
+5. On the advertising radio, click **Incidents → Announce incident**; on the receiving device, click **Refresh data**. Automatic announcements occur at startup/join and then every **60–65 minutes**. Discovering another station does not trigger an extra announcement. Packet relaying defaults to off: enable **Radio setup → Enable packet relaying** on any intermediate node needed to reach the destination.
 6. Check **nodes heard** versus **nearby incident nodes**. A heard node may be using another incident.
 7. Under **Radio setup**, watch the receive/transmit counters while sending a short test message. **TX frames** counts completed transmissions; **RX packets** counts successfully read packets; **Valid frames** counts packets recognized by this protocol. The counters restart when the radio reboots.
 8. If there is still no reception, check the antennas, power, and physical radio path. A passing software test does not establish that a radio link works.

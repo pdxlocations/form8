@@ -62,7 +62,7 @@ For ESP32 Bluetooth with Wi-Fi handoff, use the [Bluetooth guide](https://github
 2. In **Settings → Radio connection**, choose **Bluetooth (ESP32 / nRF52)**.
 3. Tap **Find radios** and allow **Nearby devices** permission. Android 11 and earlier also need location permission and Location enabled for BLE discovery.
 4. Select `Form8-xxxxxx`, then tap **Connect**. Pairing in Android's Bluetooth settings is not required.
-5. Wait for the connected board name and node ID. Set your callsign, matching frequency/modem settings, and **Enable radio transmission**, then save.
+5. Wait for the connected board name and node ID. Set your callsign, matching frequency/modem settings, and **Radio transmission → On**, then save.
 6. Create or join an incident. A second radio must join the **same Incident ID**, not merely create another incident with the same name.
 
 Defaults: **915 MHz, BW 500 kHz, SF9, CR 4/8, 14 dBm chip setting**, with transmission disabled until configured. On T096 the setting is chip drive before external amplification. All participants must match the modem settings. ESP32 and nRF nodes use the same Form8 LoRa protocol and can exchange traffic; interoperability still needs physical testing.
@@ -78,7 +78,7 @@ USB serial currently supports the native **USB CDC** interface in these nRF buil
 
 ## What happens when the phone disconnects?
 
-- The radio keeps its callsign, incident, radio profile, and transmission settings in internal flash. It can still discover peers, broadcast a fresh onboard position on its configured interval, and **relay packets for its selected incident**.
+- The radio keeps its callsign, incident, radio profile, and transmission settings in internal flash. It can still discover peers, broadcast a fresh onboard position on its configured interval, and **relay packets for its selected incident when Enable packet relaying is on** (off by default).
 - Message bodies live in Android storage. Without the companion, the radio cannot durably receive a new form/chat event, ACK its storage, repair stored bodies for other nodes, or run the companion's full-message retries. Bluetooth advertising continues for reconnection.
 - Keep Form8 **open in the foreground** for reliable receiving. There is no Android foreground service; locking the phone, switching apps, or battery optimization can suspend reception and storage/ACK processing.
 - On reconnect, the app reloads its record index, saves pending received bodies, and resumes applicable delivery attempts. A radio ACK is queued only **after the app validates and commits the body to IndexedDB**. Up to three complete incoming bodies wait in radio RAM; reset/power loss can remove those uncommitted bodies, which have not been ACKed.
@@ -119,3 +119,5 @@ Pin maps were checked against the [upstream board variants](https://github.com/m
 ## Download from the web flasher
 
 Open [form8.pdxlocs.com](https://form8.pdxlocs.com), select your release and exact nRF board, choose UF2 or HEX, and download/verify/save the image. This also works in browsers without Web Serial. The site downloads nRF files; install them using the bootloader/programmer instructions above. See [Web Flasher](Web-Flasher) for the full steps.
+
+For origin-aware manual acknowledgments, update the firmware and Android app together. The companion now includes each form’s origin in the radio index. A radio with the new protection rejects ACKs when the origin is unknown and asks for the current app. Use the same SoftDevice-matched firmware profile as before.

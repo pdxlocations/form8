@@ -2,7 +2,7 @@
 
 Open **Traffic** to see a compact message list with each form’s **From** and **To** fields alongside the routing callsigns. Click **Open** to show one message at a time.
 
-In a message, **Human Ack** lists every callsign that manually acknowledged it, including your own station and stations now offline. **None yet** means no human acknowledgment has been recorded. The original sending station is labeled **Origin**, including when viewing your own sent form. Origin is not counted as a remote radio acknowledgment. Radio acknowledgments remain separate. After sending, the saved-message info bar updates automatically from waiting to **Radio Ack: CALLSIGN** and **Human Ack: CALLSIGN** as receipts arrive, including while you browse the traffic list. A new notification or error replaces that bar. From/To fields remain available after offloading new messages; older messages can recover them while their bodies are still stored.
+In a message, the receipt matrix’s **Human** column identifies every callsign that manually acknowledged it, including your own station and stations now offline. **—** means no human acknowledgment has been recorded for that station. The original sending station is labeled **Origin**, including when viewing your own sent form. Origin is not counted as a remote radio acknowledgment. Radio acknowledgments remain separate. After sending, the saved-message info bar updates automatically from waiting to **Radio Ack: CALLSIGN** and **Human Ack: CALLSIGN** as receipts arrive, including while you browse the traffic list. A new notification or error replaces that bar. From/To fields remain available after offloading new messages; older messages can recover them while their bodies are still stored.
 
 - **Back to traffic** returns to your list page.
 - **Previous message / Next message** appear when another message is available in that view, including across pages.
@@ -34,6 +34,26 @@ Open **Incidents** and join a nearby or saved incident. Your radio has one activ
 
 ## Archive, remove, or leave
 
-An open message has an **Archive or remove** section. **Archive on this device** keeps a verified copy in Device archive and removes the body from normal Traffic. **Remove message…** removes it without creating an archive. Both keep existing device archives and other nodes’ copies. **Show archived and removed entries** reveals retained delivery history.
+Each Traffic row has **Open**, **Archive**, and **Remove…** buttons, so cleanup does not require opening the message. An open message also has an **Archive or remove** section. **Archive on this device** keeps a verified copy in Device archive and removes the body from normal Traffic. **Remove message…** removes it without creating an archive. Both keep existing device archives and other nodes’ copies. **Show archived and removed entries** reveals retained delivery history.
 
 In **Incidents**, **Leave** stops participation while keeping messages. **Remove incident…** deletes that incident’s local forms and chat, leaving first if it is active. [Cleanup and backup instructions](Archives).
+
+## Reading messages and acknowledgments
+
+Opening a form shows its contents as soon as they arrive; saving the read marker follows afterward. While the form is open, automatic refreshes update its delivery metadata without repeatedly downloading the immutable message body. A changed body checksum or missing list entry causes a fresh fetch. A failed read-marker save leaves the message visible and reports the error; it does not silently mark it read.
+
+The reader uses one color-coded matrix, with **Station**, **Radio**, and **Human** columns. **Origin** is blue, **Received** is teal, a human **Acknowledged** cell is green, **Pending** is amber, and offline/unacknowledged cells are gray. Text labels remain visible in both light and dark mode. Your own saved acknowledgment appears in the matrix too. The separate Radio Ack and Human Ack summary boxes have been removed.
+
+A **repair responder** is any node holding a saved form body that sends it when another node requests a missing copy. It need not be the original sender or a dedicated repeater. Packet relaying controls forwarding; answering requests for a locally stored form remains available even with relaying off.
+
+Broadcasts clear their overall Pending/outgoing status after one remote station acknowledges a saved copy. Individual stations can still show Pending or Pending · offline in the matrix. Callsign-addressed forms require that recipient’s ACK. This same rule controls automatic full-form retries and the outgoing count on the app and ESP32 LCD.
+
+Only receiving stations can manually acknowledge a form. The originating node has no Acknowledge button, and the radio/companion APIs reject attempts to acknowledge its own form. This uses the stable node ID, so changing a callsign does not change ownership. Historical originator human ACKs are omitted from the matrix and summary and are not repeated by ACK recovery. Replies and corrections have their own originating nodes.
+
+## Resending your own form
+
+Open a form originated by the connected node and click **Resend**. Join that form’s incident and set **Radio transmission → On** first. The original body must still be stored on the node or companion; archived/removed bodies cannot be resent from Traffic. Other nodes’ forms do not have this button, and the APIs enforce ownership by node ID.
+
+Resend queues the original form with the same ID, contents, destination, timestamp and checksum. It does not create a new message or erase radio/human receipts. An already-acknowledged form can be explicitly resent; it keeps its Radio ACK status. A resend coalesces with an already-queued transmission of that form. It respects channel availability and transmission controls, and does not bypass the radio scheduler. A failed/full queue reports an error. If you need to change the message, use Correction instead.
+
+Update firmware and Android app together for Resend. Existing receivers can accept the same wire format without changes.

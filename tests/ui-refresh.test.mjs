@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {manualAcknowledgments, receiptRows, formDeliverySummary, canReplyToForm} from '../web/model.js';
+import {manualAcknowledgments, receiptRows, formDeliverySummary, canReplyToForm, canHumanAcknowledge, canResendForm} from '../web/model.js';
 
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
 function harness(){
@@ -11,9 +11,9 @@ function harness(){
   const $=selector=>{if(!elements.has(selector))elements.set(selector,element());return elements.get(selector);};
   let next={node:'radio1',bootSession:1,callsign:'TEST2',frequency:919.5,peers:[],incident:'42',incidentName:'Test',storageUsed:0,storageTotal:1048576,queue:0,fsReady:true,radioReady:true,txEnabled:true,band:'uhf',board:'Heltec',clockSource:'unset',power:14};
   let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
-  const context=vm.createContext({updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value)=>({...element(),tag,value}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>calls.push('traffic'),loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
+  const context=vm.createContext({document:{querySelectorAll(){return [];}},updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,canHumanAcknowledge,canResendForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value,className)=>({...element(),tag,value,className}),button:(label,onclick)=>({label,textContent:label,onclick}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>{calls.push('traffic');if(vm.runInContext('selectedForm && openRecord',context))context.renderForm({...record,body:record.meta.state==='stored'?record.body:undefined});},loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
   const originalApi=context.api;context.api=async(path,body)=>path==='time'?(calls.push({path,body}),{saved:true}):originalApi(path,body);
-  vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',offset=0;"+source.slice(source.indexOf('function poll()'),source.indexOf('function deliveryIndicator'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
+  vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
   return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};
 }
 
@@ -156,7 +156,7 @@ test('message reader hides the list, navigates across pages, and Back restores i
 test('acknowledge button reflects this node’s saved human acknowledgment',async()=>{
   const h=harness();vm.runInContext("status={node:'self'};selectedForm='abc'",h.context);
   const render=receipts=>{
-    h.context.record={meta:{id:'abc',receipts},body:JSON.stringify({message:'Test'})};
+    h.context.record={meta:{id:'abc',origin:'remote',receipts},body:JSON.stringify({message:'Test'})};
     vm.runInContext('renderForm(record)',h.context);
     return h.$('#form-detail').children.find(e=>e.children?.some(c=>c.label==='Acknowledge'||c.label==='Acknowledged')).children[0];
   };
@@ -169,20 +169,21 @@ test('acknowledge button reflects this node’s saved human acknowledgment',asyn
   await assert.rejects(button.onclick(),/Cannot save/);assert.equal(button.textContent,'Acknowledge');assert.equal(button.disabled,false);
 });
 
-test('message detail renders and refreshes the complete manual callsign list',()=>{
-  const h=harness();
-  h.context.manualAcknowledgments=manualAcknowledgments;h.context.receiptRows=receiptRows;
-  h.context.deliveryIndicator=()=>h.context.text('div','Radio delivery');
-  h.context.document={createElement:tag=>h.context.text(tag,'')};
-  vm.runInContext("status={node:'self',callsign:'NET-A',peers:[{id:'b',callsign:'NET-B'}]};"+source.slice(source.indexOf('function renderReceipts('),source.indexOf('async function loadTraffic()')),h.context);
-  h.context.meta={receipts:[{id:'self',human:true},{id:'b',human:true},{id:'c',human:false}]};
+test('receipt matrix replaces duplicate boxes and includes every human ACK with distinct colors',()=>{
+  const h=harness();h.context.receiptRows=receiptRows;h.context.document={createElement:tag=>h.context.text(tag,'')};
+  vm.runInContext("status={node:'self',callsign:'NET-A',peers:[{id:'b',callsign:'NET-B',online:true},{id:'waiting',callsign:'NET-W',online:true}]};"+source.slice(source.indexOf('function renderReceipts('),source.indexOf('async function loadTraffic()')),h.context);
+  h.context.meta={origin:'origin',sender:'NET-O',expected:[{id:'waiting'},{id:'offline'}],receipts:[{id:'self',human:true},{id:'b',human:true},{id:'c',human:false}]};
   vm.runInContext('renderReceipts(meta)',h.context);
-  const humanRow=()=>h.$('#delivery-detail').children[1].children[0].value;
-  assert.equal(humanRow(),'Human Ack: NET-A, NET-B');
-  h.context.meta.receipts.push({id:'offline',callsign:'NET-C',human:true});
-  vm.runInContext('renderReceipts(meta)',h.context);assert.equal(humanRow(),'Human Ack: NET-A, NET-B, NET-C');
-  h.context.meta={receipts:[{id:'c',human:false}]};
-  vm.runInContext('renderReceipts(meta)',h.context);assert.equal(humanRow(),'Human Ack: None yet');
+  const rows=()=>h.$('#delivery-detail').children[0].children.slice(1);
+  assert.equal(h.$('#delivery-detail').children.length,1);
+  assert(rows().some(r=>r.children[0].value==='NET-A'&&r.children[2].className==='receipt-human'));
+  assert(rows().some(r=>r.children[0].value==='NET-B'&&r.children[2].value==='Acknowledged'));
+  assert(rows().some(r=>r.children[1].className==='receipt-origin'));
+  assert(rows().some(r=>r.children[1].className==='receipt-radio'));
+  assert(rows().some(r=>r.children[1].className==='receipt-pending'));
+  assert(rows().some(r=>r.children[1].className==='receipt-offline'));
+  h.context.meta.receipts.push({id:'offline',callsign:'NET-C',human:true});vm.runInContext('renderReceipts(meta)',h.context);
+  assert(rows().some(r=>r.children[0].value==='NET-C'&&r.children[2].value==='Acknowledged'));
 });
 
 test('TX power range comes from the board and refreshes without overwriting an edit',async()=>{
@@ -198,7 +199,7 @@ test('TX power range comes from the board and refreshes without overwriting an e
 });
 
 test('sent message info bar refreshes ACKs after returning to the list without replacing unrelated feedback',async()=>{
- const h=harness();h.context.formDeliverySummary=formDeliverySummary;
+ const h=harness();h.context.formDeliverySummary=formDeliverySummary;h.context.formSendStatus=()=>{};vm.runInContext('let formSubmitting=false;',h.context);
  vm.runInContext(source.slice(source.indexOf('function feedback('),source.indexOf('function run(')),h.context);
  h.context.meta={id:'abc',recipient:'*',receipts:[]};
  vm.runInContext("status={node:'radio1',txEnabled:true,peers:[]};feedback('Saved · awaiting radio ACK');",h.context);
@@ -209,4 +210,74 @@ test('sent message info bar refreshes ACKs after returning to the list without r
  await h.poll();assert.match(h.$('#feedback').textContent,/Human Ack: NET-B/);
  vm.runInContext("feedback('New error',true)",h.context);
  await h.poll();assert.equal(h.$('#feedback').textContent,'New error');
+});
+
+test('Nodes refreshes all incident memberships and packet signal/time without extra radio operations',async()=>{
+ const h=harness();await h.poll();assert.equal(h.$('#radio-settings').elements.relayEnabled.checked,false);
+ h.update({relayEnabled:false,peers:[{id:'node2',callsign:'REMOTE',incident:'99',name:'Other incident',online:true,lastHeardAgeMs:2000,rssi:-92.5,snr:7.25,relayed:true},{id:'node3',incident:'0000000000000000',online:false,lastHeardAgeMs:1000000}]});
+ await h.poll();let rows=h.$('#node-list').children;
+ assert.equal(rows.length,3);assert(rows[0].children.some(e=>e.value==='Connected · Relaying off'));
+ assert(rows[1].children.some(e=>e.value.includes('Other incident · Incident ID 99')));
+ assert(rows[1].children.some(e=>e.value.includes('Last heard 2s ago')));
+ assert(rows[1].children.some(e=>e.value==='RSSI -92.5 dBm · SNR 7.3 dB · Forwarded packet · Last hop'));
+ assert(rows[2].children.some(e=>e.value==='No incident selected'));
+ assert(rows[2].children.some(e=>e.value==='RSSI / SNR unavailable'));
+ h.update({peers:[{id:'node2',callsign:'REMOTE',incident:'42',name:'Test',online:true,lastHeardAgeMs:0,rssi:-60,snr:10,relayed:false}]});await h.poll();rows=h.$('#node-list').children;
+ assert.equal(rows.length,2);assert(rows[1].children.some(e=>e.value.includes('Last hop')));assert(rows[1].children.some(e=>e.value.includes('Test · Incident ID 42')));
+ assert(h.calls.every(c=>['status','chat','chat-reset'].includes(c)||typeof c==='object'&&c.path==='time'),JSON.stringify(h.calls));
+});
+
+
+test('single transmission selector reflects effective legacy enable/pause state and preserves an edit',async()=>{
+ const h=harness();
+ for(const [txEnabled,paused,expected] of [[true,false,'on'],[true,true,'off'],[false,false,'off'],[false,true,'off']]){
+  h.update({txEnabled,paused});await h.poll();assert.equal(h.$('#radio-settings').elements.transmission.value,expected);
+ }
+ h.$('#radio-settings').elements.transmission.value='on';vm.runInContext('settingsDirty=true',h.context);h.update({txEnabled:false,paused:true});await h.poll();assert.equal(h.$('#radio-settings').elements.transmission.value,'on');
+});
+
+test('single transmission selector saves On/Off and clears the legacy pause override',async()=>{
+ const html=readFileSync(new URL('../web/index.html',import.meta.url),'utf8');assert.match(html,/<select name="transmission"/);assert.doesNotMatch(html,/name="(?:txEnabled|paused)"/);
+ const controls={};for(const name of ['callsign','primary','backup','bandwidth','sf','cr','power','positionMinutes','transmission'])controls[name]={value:name==='callsign'?' test ':name==='transmission'?'on':'10'};
+ for(const name of ['useBackup','relayEnabled','positionEnabled'])controls[name]={checked:false};
+ const f={elements:controls},saved=[];
+ const context=vm.createContext({$:()=>f,run:fn=>fn,api:async(path,data)=>{assert.equal(path,'config');saved.push(data);return {radioReady:true};},poll:async()=>{},feedback(){}});
+ vm.runInContext("let settingsLoaded=true,settingsDirty=true;"+source.slice(source.indexOf("$('#radio-settings').onsubmit="),source.indexOf("$('#sync-time').onclick=")),context);
+ await f.onsubmit({preventDefault(){},target:f});assert.equal(saved[0].txEnabled,true);assert.equal(saved[0].paused,false);assert.equal(saved[0].relayEnabled,false);
+ controls.transmission.value='off';await f.onsubmit({preventDefault(){},target:f});assert.equal(saved[1].txEnabled,false);assert.equal(saved[1].paused,false);
+});
+
+
+test('reader displays the body before read-marker completion and reuses it for metadata refresh',async()=>{
+ const h=harness();h.$('#traffic').hidden=false;await h.poll();let finishRead,bodyReads=0;
+ const meta={id:'abc',state:'stored',subject:'Fast reader',sender:'TEST1',recipient:'*',priority:0,receipts:[]};
+ h.context.priorities=['Routine'];h.context.deliveryStatus=()=>({complete:false,label:'Pending'});
+ const original=h.context.api;h.context.api=async(path,body)=>{
+  if(path==='form?id=abc'){++bodyReads;return {meta:{...meta},body:JSON.stringify({message:'Visible immediately'})};}
+  if(path==='read')return new Promise(resolve=>{finishRead=resolve;});
+  if(path.startsWith('forms?'))return {forms:[{...meta}],total:1,offset:0};
+  return original(path,body);
+ };
+ vm.runInContext('let total=0;'+source.slice(source.indexOf('async function loadTraffic()'),source.indexOf('async function replyToForm')),h.context);
+ const opening=vm.runInContext("openForm('abc')",h.context);await new Promise(resolve=>setImmediate(resolve));
+ assert(h.$('#form-detail').children.some(e=>e.value==='Visible immediately'));assert(finishRead);assert.equal(bodyReads,1);
+ await h.poll();assert.equal(bodyReads,1);meta.receipts=[{id:'other',human:true}];await h.poll();assert.equal(bodyReads,1);
+ finishRead({saved:true});await opening;assert.equal(bodyReads,1);
+});
+
+
+test('origin reader has no human-acknowledge button even with a historical self ACK',()=>{
+ const h=harness();vm.runInContext("status={node:'self',callsign:'NEW-CALL'};selectedForm='own'",h.context);
+ h.context.own={meta:{id:'own',origin:'self',sender:'OLD-CALL',receipts:[{id:'self',human:true}]},body:JSON.stringify({message:'My message'})};vm.runInContext('renderForm(own)',h.context);
+ assert(!h.$('#form-detail').children.some(row=>row.children?.some(c=>['Acknowledge','Acknowledged'].includes(c.label))));
+});
+
+
+test('origin reader Resend queues once, retains receipts, and is absent on received forms',async()=>{
+ const h=harness();vm.runInContext("status={node:'self',incident:'42',txEnabled:true,radioReady:true};selectedForm='own'",h.context);
+ const own={meta:{id:'own',origin:'self',incident:'42',state:'stored',receipts:[{id:'other',human:true}]},body:JSON.stringify({message:'Original'})};h.context.own=own;vm.runInContext('renderForm(own)',h.context);
+ const resend=h.$('#form-detail').children.flatMap(row=>row.children||[]).find(c=>c.label==='Resend');assert(resend);assert.equal(resend.disabled,false);
+ let finish,calls=0;h.context.api=async(path,body)=>{assert.equal(path,'resend');assert.equal(body.id,'own');++calls;return new Promise(resolve=>finish=resolve);};h.context.poll=async()=>true;
+ const pending=resend.onclick();await resend.onclick();assert.equal(calls,1);finish({queued:true});await pending;assert.equal(resend.textContent,'Resend');assert.equal(own.meta.receipts[0].human,true);
+ own.meta.origin='other';vm.runInContext('renderForm(own)',h.context);assert(!h.$('#form-detail').children.flatMap(row=>row.children||[]).some(c=>c.label==='Resend'));
 });

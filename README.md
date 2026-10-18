@@ -33,7 +33,7 @@ Example screens from the local simulator; these do not demonstrate an RF connect
 
 ### Read and acknowledge a message
 
-![Form8 message reader with callsigns for Radio ACK, Human Ack, and Origin](docs/screenshots/traffic.png)
+![Form8 message reader with one color-coded Station, Radio, and Human receipt matrix](docs/screenshots/traffic.png)
 
 ### Incident chat
 
@@ -42,6 +42,10 @@ Example screens from the local simulator; these do not demonstrate an RF connect
 ### Incidents
 
 ![Form8 Incidents tab for creating, joining, and switching between nearby and retained incidents](docs/screenshots/incidents.png)
+
+### Nodes
+
+![Form8 Nodes tab showing incident membership, last-heard time, RSSI, and SNR](docs/screenshots/nodes.png)
 
 ### Incident map
 
@@ -53,4 +57,4 @@ Example screens from the local simulator; these do not demonstrate an RF connect
 
 ### Station and radio settings
 
-![Form8 Settings tab with appearance, callsign, modem settings, transmit controls, and position sharing](docs/screenshots/settings.png)
+![Form8 Settings tab with appearance, callsign, modem settings, transmit and relay controls, and position sharing](docs/screenshots/settings.png)

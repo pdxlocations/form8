@@ -3,32 +3,32 @@
 #include <map>
 
 namespace form8 {
-constexpr uint32_t HELLO_INTERVAL_MS=120000,HELLO_JITTER_MS=30000,HELLO_RESPONSE_COOLDOWN_MS=30000;
-constexpr uint32_t PEER_ONLINE_MS=600000;
-constexpr uint32_t INVENTORY_INTERVAL_MS=300000,INVENTORY_JITTER_MS=60000;
-constexpr uint32_t REPAIR_PAGE_MS=10000,REPAIR_JITTER_MS=2000,REPAIR_COOLDOWN_MS=120000;
+constexpr uint32_t HELLO_INTERVAL_MS=3600000,HELLO_JITTER_MS=300000;
+constexpr uint32_t PEER_ONLINE_MS=5400000;
+constexpr uint32_t INVENTORY_INTERVAL_MS=900000,INVENTORY_JITTER_MS=180000;
+constexpr uint32_t REPAIR_PAGE_MS=30000,REPAIR_JITTER_MS=15000,REPAIR_COOLDOWN_MS=600000;
 constexpr uint32_t CONTROL_QUEUE_RETRY_MS=2000,HUMAN_ACK_RECOVERY_MS=1800000;
 class BroadcastSchedule {
-  bool helloPending=true,helloSent=false,repairPending=false,repairSent=false;
-  uint32_t helloAt=0,helloNext=0,helloAttempt=0,inventoryNext=0,repairAt=0;
+  bool helloPending=true,repairPending=false,repairSent=false;
+  uint32_t helloNext=0,helloAttempt=0,inventoryNext=0,repairAt=0,repairNext=0;
   size_t repairPages=0;
 public:
   void reset(uint32_t now){
-    helloPending=true;helloSent=false;repairPending=false;repairSent=false;repairPages=0;
+    helloPending=true;repairPending=false;repairSent=false;repairPages=0;
     helloAttempt=now;inventoryNext=now+INVENTORY_INTERVAL_MS;
   }
-  void discover(bool sameIncident){helloPending=true;if(sameIncident && !repairPages)repairPending=true;}
+  void discover(bool sameIncident,uint32_t now=0,uint32_t random=0){if(sameIncident && !repairPages && !repairPending){repairPending=true;repairNext=now+5000+random%10001;}}
   bool helloDue(uint32_t now) const{
     if(int32_t(now-helloAttempt)<0)return false;
-    return helloPending?(!helloSent || uint32_t(now-helloAt)>=HELLO_RESPONSE_COOLDOWN_MS):int32_t(now-helloNext)>=0;
+    return helloPending || int32_t(now-helloNext)>=0;
   }
-  void helloQueued(uint32_t now,uint32_t random){helloPending=false;helloSent=true;helloAt=now;helloNext=now+HELLO_INTERVAL_MS+random%(HELLO_JITTER_MS+1);}
+  void helloQueued(uint32_t now,uint32_t random){helloPending=false;helloNext=now+HELLO_INTERVAL_MS+random%(HELLO_JITTER_MS+1);}
   void helloFailed(uint32_t now){helloAttempt=now+CONTROL_QUEUE_RETRY_MS;}
   bool inventoryDue(uint32_t now) const{
-    return (repairPending && (!repairSent || uint32_t(now-repairAt)>=REPAIR_COOLDOWN_MS)) || int32_t(now-inventoryNext)>=0;
+    return (repairPending && int32_t(now-repairNext)>=0 && (!repairSent || uint32_t(now-repairAt)>=REPAIR_COOLDOWN_MS)) || int32_t(now-inventoryNext)>=0;
   }
   bool beginInventory(uint32_t now,size_t records){
-    if(repairPending && !repairPages && (!repairSent || uint32_t(now-repairAt)>=REPAIR_COOLDOWN_MS)){
+    if(repairPending && int32_t(now-repairNext)>=0 && !repairPages && (!repairSent || uint32_t(now-repairAt)>=REPAIR_COOLDOWN_MS)){
       repairPending=false;repairSent=true;repairAt=now;repairPages=(records+7)/8;return true;
     }
     return false;

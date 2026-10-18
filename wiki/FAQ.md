@@ -26,17 +26,17 @@ No. Forms are text-only. Optional coordinates are supported.
 
 ## How do I know a message arrived?
 
-Look for **Radio ACK** from the intended station. That means its radio saved the form. The **Manually acknowledged by** list shows every station with a saved manual acknowledgment, including your own. An unknown callsign is shown as its node ID. A local save or a cleared unread indicator is not a remote receipt.
+Look for **Radio ACK** from the intended station. That means its radio saved the form. The matrix’s **Human** column shows each station’s saved manual acknowledgment, including your own. An unknown callsign is shown as its node ID. A local save or a cleared unread indicator is not a remote receipt.
 
 ## How long does delivery take?
 
 There is no guaranteed delivery time. It depends on message length, radio settings, signal conditions, relays, and other traffic. Short messages require less airtime.
 
-Pending local messages are retried automatically: an initial send plus up to three quick retries spaced three seconds after the previous complete transmission, then waits of **1 minute**, **5 minutes**, and **15 minutes**. Further retries stay at 15-minute intervals until the required radio receipts arrive. A busy channel, paused transmission, or queued traffic can delay these attempts. See [all automatic traffic and retry rules](https://github.com/pdxlocations/form8/wiki/Radio-Traffic).
+Pending local messages are retried automatically: an initial send, followed by waits of **1 minute**, **5 minutes**, and **15 minutes** after completed transmissions. Further retries stay at 15-minute intervals until the first remote ACK arrives for a broadcast, or the named recipient ACKs an addressed form. A busy channel, Radio transmission set to Off, or queued traffic can delay these attempts. See [all automatic traffic and retry rules](https://github.com/pdxlocations/form8/wiki/Radio-Traffic).
 
 ## Who receives a broadcast? Who receives an addressed message?
 
-Radios with the same active incident and compatible radio settings can store and relay both. A broadcast waits for receipts from tracked stations, or at least one remote station if none were known. A callsign-addressed message waits for that callsign's receipt. Neither is private.
+Radios with the same active incident and compatible radio settings can store and relay both. A broadcast is radio-acknowledged after the first remote station confirms a saved copy. That clears its pending/outgoing indicator and stops full-form retries even if other tracked stations are offline. The matrix still shows each station’s individual receipt status. A callsign-addressed message waits for that callsign's receipt. Neither is private.
 
 ## Can radios relay messages through other radios?
 
@@ -44,7 +44,7 @@ Yes. Compatible Form8 radios can forward packets through multiple hops. Actual r
 
 ## Why does a station still show Pending when it is offline?
 
-Known stations remain on a message's tracked list, even when they stop announcing themselves. This avoids treating an absent station as a successful delivery. A station is shown offline after **10 minutes** without an announcement. This allows several missed announcements at the quieter 2–2½ minute interval.
+Known stations remain on a message's tracked list, even when they stop announcing themselves. A missing station stays Pending in the matrix so you can distinguish individual reception from the overall broadcast status. It does not keep a broadcast pending after another station has acknowledged. A station is shown offline after **90 minutes** without a valid packet carrying its origin ID. Routine announcements are hourly (60–65 minutes with jitter); relayed packets and repair responses can keep an origin recently heard even if its original station is absent. Use the Nodes tab to inspect last-heard time and last-hop signal readings.
 
 ## Where are drafts, messages, and archives saved?
 
@@ -89,6 +89,16 @@ Double-press Reset and read the **SoftDevice** line in `INFO_UF2.TXT`. **S140 6.
 
 ## How do I remove old messages and incidents?
 
-In an open Traffic message, **Archive on this device** keeps a verified copy in Device archive; **Remove message…** removes it without making a new archive. Both hide the entry from normal Traffic. **Show archived and removed entries** reveals the retained delivery history.
+In the Traffic list, **Archive** saves a verified device copy and **Remove…** removes the message without making an archive. Both appear beside **Open**. The same actions are available inside the message. Both hide the entry from normal Traffic. **Show archived and removed entries** reveals the retained delivery history.
 
 In **Incidents**, **Leave** stops participating while keeping data. **Remove incident…** deletes that incident’s local forms, delivery records, and chat; if active, it leaves first. Saved device archives and other nodes’ copies are kept. [Complete cleanup instructions](Archives).
+
+
+### Does every node relay packets?
+
+No. **Radio setup → Enable packet relaying** defaults to off. Enable it on nodes that need to bridge a gap or extend coverage. Nodes with it off can still send, receive, acknowledge, and serve requested stored forms. To advertise your active incident immediately, use **Incidents → Announce incident**, or **Announce** beside its saved entry.
+
+
+### Can I manually acknowledge my own form?
+
+No. Only receiving stations can human-acknowledge a form. Its originating node is labeled Origin instead. The app and radio enforce this by node ID, including after a callsign change. Old originator human ACKs are hidden and are not repeated.

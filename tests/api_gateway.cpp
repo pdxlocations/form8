@@ -1,8 +1,32 @@
 #define ARDUINOJSON_ENABLE_ARDUINO_STRING 1
 #include <ApiGateway.h>
+#include <DeliveryPolicy.h>
+#include <TrafficOrder.h>
+#include <algorithm>
+#include <vector>
 #include <cassert>
 #include <iostream>
 int main(){
+ // Traffic order is newest first even with random IDs and unsynchronized clocks.
+ std::vector<std::pair<form8::TrafficOrder,int>> traffic;
+ for(int i=1;i<=25;++i)traffic.push_back({{static_cast<uint32_t>(i),100-i,0},26-i});
+ traffic.push_back({{0,2000000000,9},99}); // Legacy timestamp cannot outrank new local order.
+ std::sort(traffic.begin(),traffic.end());
+ assert(traffic.front().second==1 && traffic[19].second==20 && traffic[20].second==21 && traffic.back().second==99);
+ assert((form8::TrafficOrder{0,200,0}<form8::TrafficOrder{0,100,9}));
+ assert((form8::TrafficOrder{0,0,9}<form8::TrafficOrder{0,0,8}));
+ // Exercise the actual ESP32 policy used for retries, outgoing count and LCD.
+ JsonDocument delivery;
+ auto match=[](const String& id,const String& call){return id=="known" && call=="TARGET";};
+ assert(!deserializeJson(delivery,R"({"recipient":"*","expected":[{"id":"gone","callsign":"OFFLINE"},{"id":"remote","callsign":"REMOTE"}],"receipts":[{"id":"self"}]})"));
+ assert(form8::formDeliveryPending(delivery,String("self"),match));
+ JsonObject receipt=delivery["receipts"].add<JsonObject>();receipt["id"]="remote";
+ assert(!form8::formDeliveryPending(delivery,String("self"),match));
+ delivery["recipient"]="TARGET";assert(form8::formDeliveryPending(delivery,String("self"),match));
+ receipt["id"]="known";assert(!form8::formDeliveryPending(delivery,String("self"),match));
+ receipt["id"]="other";receipt["callsign"]="TARGET";assert(!form8::formDeliveryPending(delivery,String("self"),match));
+ receipt["id"]="self";assert(form8::formDeliveryPending(delivery,String("self"),match));
+ receipt["id"]="gone";delivery["expected"][0]["callsign"]="TARGET";receipt["callsign"]="";assert(!form8::formDeliveryPending(delivery,String("self"),match));
  WebServer server;ApiGateway api(server);std::string saved;
  api.on("/api/forms",HTTP_POST,[&](){JsonDocument body;if(!api.input(body))return;saved=body["message"].as<std::string>();JsonDocument out;out["saved"]=true;out["message"]=saved;api.respond(201,out);});
  api.on("/api/form",HTTP_GET,[&](){JsonDocument out;out["body"]=saved;out["id"]=api.arg("id");api.respond(200,out);});
