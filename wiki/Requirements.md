@@ -1,6 +1,6 @@
 # Form8 firmware — implementation interview
 
-Status: initial implementation created; host tests and Heltec compilation performed. Hardware validation and companion release builds remain.
+This page records the original implementation interview and early decisions. Some requirements below have since changed; it is not the current operator guide. See [Home](Home), [Radio traffic](Radio-Traffic), and [nRF52 and Android](nRF52-and-Android) for current behavior. Android development APKs and ESP32/nRF firmware are built by the release workflow; physical validation remains incomplete.
 
 ## Agreed requirements
 

@@ -4,7 +4,7 @@
 
 1. Open **Chat** and type a short message, such as `At the staging area 👩🏽‍🚒`.
 2. Keep it within **200 UTF-8 bytes**, using the live counter below the text box. Emoji are supported; for example, `👍` uses four bytes. The limit applies to your text, not its radio metadata.
-3. Click **Send chat**. The message is saved on your radio and sent when Radio transmission is set to On.
+3. Click **Send chat**. The message is saved on the ESP32 radio, or in Android storage for nRF52840, and sent when **Enable radio transmission** is checked.
 4. Check the delivery line below the message: **Awaiting radio ACK** changes to **Radio ACK: CALLSIGN…** as other radios confirm that they saved it. An ACK is a radio receipt, not proof that a person read it or that every incident node received it.
 5. Click **Reply** below a message to link your answer to it. Click **Cancel reply** to send a new message instead. An older reply target may show only its ID if it has left this radio's history.
 6. Use **React** to choose 👍, 👎, ❤️, ✅, ❓, 🚨, or 👀. Click your highlighted reaction to remove it. Reaction buttons show counts; their tooltips list callsigns and the radio-ACK state of your own reaction.
@@ -15,7 +15,7 @@ The page refreshes chat and delivery information automatically; **Refresh data**
 
 Chat messages, replies, reactions, and chat radio ACKs are **excluded from form traffic, form queued/unread counts, and the LCD's outgoing/unread counters**. They are stored separately and are not included in form archives. The low-level RX/TX diagnostic counters still count every radio packet.
 
-Each radio retains up to **96 chat events across incidents**, including reaction changes, and displays its latest **30 text messages** in the active incident. Oldest events are removed as new ones arrive; chat is a short conversation history, not a permanent record. It uses available radio storage while preserving the form storage reserve. Reactions and parent messages can disappear as their events age out.
+Each ESP32 radio or nRF companion radio store retains up to **96 chat events across incidents**, including reaction changes, and displays its latest **30 text messages** in the active incident. Oldest events are removed as new ones arrive; chat is a short conversation history, not a permanent record. It uses available radio storage while preserving the form storage reserve. Reactions and parent messages can disappear as their events age out.
 
 Chat uses an initial transmission plus at most **two retries**, with waits of **15 seconds** and then **45 seconds** after completed transmissions. A receipt from any remote radio stops that event's remaining retries. Without an ACK, the message stays visible with an unconfirmed-delivery label. A reboot or incident switch stops pending chat retries; same-incident radio reconfiguration preserves the remaining attempt budget. Chat does not broadcast periodic history inventories or synchronize old conversations to newly joined nodes. Chat is plaintext and unauthenticated, like forms.
 

@@ -47,3 +47,13 @@ Follow [nRF52 and Android](https://github.com/pdxlocations/form8/wiki/nRF52-and-
 The Android app cancels queued requests when the Bluetooth connection changes. This prevents commands left over from another radio connection from being sent to the new node. It also waits for both a radio response and Android’s final GATT write callback before starting the next request, because the response notification can arrive first.
 
 Install the updated APK over the existing app; these app fixes do not require erasing app data or reflashing the radio. In Settings → Radio connection, check **Android app build** to identify the installed package. The download also has a filename containing that build identifier. Errors now include the request, for example `Radio http GET /api/status: Unknown operation`, rather than only `Unknown operation`. If that specific error persists with updated firmware and app, retain the complete error text for diagnosis.
+
+## Reconnecting and GATT status 133
+
+Install the current APK over the existing app to get the reconnect fix; clearing app data is not required. Android status **133** is a generic GATT connection failure, rather than a Form8 message-delivery result.
+
+During initial connection or notification setup, Form8 closes the failed GATT client and retries status 133 up to **two times** (three attempts total), waiting **1.5 seconds** and then **3 seconds**. Replacing a closed connection also observes a **one-second** cooldown. The whole connection attempt has a **60-second** timeout. Disconnecting or switching radios cancels the old attempt and its retry timers.
+
+If it still fails, tap **Connect** again. If needed, toggle the phone's Bluetooth off and on, then scan again. Forget the Android pairing only if pairing credentials are stale or pairing itself fails. Keep the complete error and board/app build details for troubleshooting.
+
+These bounded retries apply to connection setup. A link that drops after working is not automatically reconnected, and failed commands are not automatically replayed to another radio.

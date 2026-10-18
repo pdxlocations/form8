@@ -41,3 +41,19 @@ Download **`form8-release.zip`** from a completed release and extract it. Its fo
 A root `README.txt` explains the folders; a root `SHA256SUMS` verifies all included files. The same directory layout is available under **Actions → Release firmware → completed run → Artifacts → form8-release**. For local builds, run all firmware and Android builders, then `npm run webflasher:prepare` and `python3 tools/package_release.py`; the organized tree is written to `dist/release/`.
 
 GitHub release pages display assets as a flat list, so each release has four downloads: **`form8-release.zip`**, **`form8-release.zip.sha256`**, **`form8-android-debug.apk`**, and **`form8-android-debug.apk.sha256`**. The APK can be installed without downloading/extracting the firmware ZIP. The ZIP contains only `esp32/`, `nrf52/`, and `webflasher/`, plus package notes and checksums. Android is also available as a separate **form8-android** Actions artifact. The updated web flasher reads those folders from the ZIP; it does not need loose assets. Older loose-file releases are intentionally hidden by this flasher. Upload the new `webflasher/` contents to DreamHost and enable PHP ZIP support before publishing a bundle-only release. Existing published releases are not modified automatically.
+
+## Promote a tested beta to a release
+
+1. Open the existing beta under **Releases** and click its edit/pencil button.
+2. Keep its **tag and attached files** unchanged so users receive the build you tested.
+3. Remove **Beta** from the release title and update the notes.
+4. Uncheck **This is a pre-release**. Choose **Set as latest release** when this should be the default download.
+5. Click **Update release**. Allow up to five minutes for the web flasher cache to refresh.
+
+The old tag may still end in `-beta`; GitHub's prerelease setting controls the release classification. Editing an already published release does not run this repository's `release: published` build workflow, so the existing firmware and APK remain in place. If you need a new version tag or changed code, publish a separate release and let it build instead.
+
+See [GitHub's release-editing instructions](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository#editing-a-release).
+
+## Version on the LCD
+
+Before a client connects, supported ESP32 displays show **vX.Y.Z** beside the node ID. The LCD omits the commit suffix and Beta label; use the release title or app build information to identify the exact build. Release builds derive the numeric version from the selected release tag.

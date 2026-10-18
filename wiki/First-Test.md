@@ -13,7 +13,7 @@ On **both** radios, open **Radio setup** and use the same profile:
 | Spreading factor | 9 |
 | Coding rate | 4/8 |
 | TX power | 22 dBm (board maximum) |
-| Use backup preset | Unchecked |
+| Use backup frequency | Unchecked |
 | Enable radio transmission | Checked |
 
 Click **Save settings** on each radio. Transmission starts disabled on a fresh device. These are starting settings for testing, not a field-validated radio configuration. Radios that already have saved settings keep them after a firmware update; check the actual values on each radio.
@@ -24,6 +24,7 @@ Click **Save settings** on each radio. Transmission starts disabled on a fresh d
 2. Enter `Practice drill` under **New incident name**.
 3. Click **Create and join**.
 4. Note the **Incident ID** in the header.
+5. Click **Announce incident** so the other radio can discover it.
 
 An incident is the group of messages your radio is currently working with.
 
@@ -36,7 +37,7 @@ An incident is the group of messages your radio is currently working with.
 
 **Do not create a second incident with the same name on NET-B.** Creating an incident gives it a new ID. Matching names alone do not put radios in the same incident.
 
-Joining queues an announcement immediately when transmission is allowed. Routine announcements repeat every **2–2½ minutes**. A newly discovered or restarted node can prompt an earlier response, with a 30-second response cooldown; radio traffic can delay either. Use **Refresh data** to check again without reloading the page. The header shows both nodes heard and nodes in your active incident.
+There are **no periodic incident announcements**. Announcements happen at startup, manually, or when a new/restarted/90-minute-returning node is heard. Joining alone does not announce. If the incident is missing, click **Announce incident** on NET-A. Discovery responses wait 1–5 seconds and at least 30 seconds since the last announcement; channel traffic can delay them. Use **Refresh data** to check again without reloading the page. The header shows both nodes heard and nodes in your active incident.
 
 ## 4. Send a test message from NET-A
 
@@ -62,7 +63,7 @@ Sending saves the form on your radio and queues it for transmission. It does **n
 
 1. With the message open on `NET-B`, click **Acknowledge**.
 2. After it is saved, the button changes to **Acknowledged** and becomes disabled.
-3. On `NET-A`, open the message and look for `NET-B` in the **Manually acknowledged by** list once the acknowledgment arrives.
+3. On `NET-A`, open the message and look for `NET-B` in the receipt matrix: **Received** under **Radio** and **Acknowledged** under **Human** once the acknowledgment arrives.
 
 A **radio ACK** means another radio saved the form. A **human acknowledgment** means someone explicitly clicked **Acknowledge**. Opening a message only marks it read locally.
 

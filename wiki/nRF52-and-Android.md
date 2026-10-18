@@ -37,7 +37,7 @@ The files contain the application only. If the matching option is missing from t
 ## Install the radio firmware
 
 1. Download `form8-release.zip` from the [release assets](https://github.com/pdxlocations/form8/releases), extract it, and open its `nrf52/` folder.
-2. Extract the ZIP and choose the **matching board** `.uf2` file.
+2. Choose the `.uf2` file for the **matching board and installed SoftDevice** using the table above.
 3. Put the board in its vendor's UF2 bootloader mode, usually by double-pressing Reset. Read `INFO_UF2.TXT` on the USB drive.
 4. Match the image to the **SoftDevice** line in `INFO_UF2.TXT`. For a RAK4631 with **S140 6.1.1**, use `form8-rak4631-s140-6-1-1.uf2` (application at `0x26000`). For a RAK4631 with **S140 7.3.0**, use `form8-rak4631.uf2` (application at `0x27000`). All other current targets require **S140 7.3.0**. These images **do not contain or replace a SoftDevice or bootloader**. If the version is unknown, identify it before flashing. Do not use a bootloader intended for a different board.
 5. In the web flasher, select the version you checked in **Installed SoftDevice**. Downloads stay blocked until it matches the build; the site cannot detect it automatically. If the board has no USB bootloader drive, confirm the installed version with its programming tools. Copy the matching Form8 `.uf2` onto the bootloader drive. The board should restart and advertise `Form8-xxxxxx` over Bluetooth.
@@ -62,7 +62,7 @@ For ESP32 Bluetooth with Wi-Fi handoff, use the [Bluetooth guide](https://github
 2. In **Settings → Radio connection**, choose **Bluetooth (ESP32 / nRF52)**.
 3. Tap **Find radios** and allow **Nearby devices** permission. Android 11 and earlier also need location permission and Location enabled for BLE discovery.
 4. Select `Form8-xxxxxx`, then tap **Connect**. Pairing in Android's Bluetooth settings is not required.
-5. Wait for the connected board name and node ID. Set your callsign, matching frequency/modem settings, and **Radio transmission → On**, then save.
+5. Wait for the connected board name and node ID. Set your callsign and matching frequency/modem settings, check **Enable radio transmission**, then save.
 6. Create or join an incident. A second radio must join the **same Incident ID**, not merely create another incident with the same name.
 
 Defaults: **915 MHz, BW 500 kHz, SF9, CR 4/8, 22 dBm chip setting (maximum supported setting)**, with transmission disabled until configured. On T096 the setting is chip drive before external amplification. All participants must match the modem settings. ESP32 and nRF nodes use the same Form8 LoRa protocol and can exchange traffic; interoperability still needs physical testing.
@@ -109,7 +109,7 @@ nRF compilation needs PlatformIO. Android compilation needs JDK 21 or later, And
 
 Outputs:
 
-- `dist/form8-nrf52-firmware.zip`: nine application-only UF2/HEX pairs and SHA-256 checksums.
+- `dist/form8-nrf52-firmware.zip`: ten application-only UF2/HEX pairs (nine board families, including both RAK SoftDevice profiles) and SHA-256 checksums.
 - `dist/form8-android-debug.apk` and `.apk.sha256`: installable development companion.
 
 The release workflow builds both alongside the ESP32 targets. The nRF source/configuration lives in `firmware/nrf52/`, `config/nrf52.ini`, and `config/nrf52-targets.json`. Android transport code lives in `android/app/src/main/java/org/form8/radio/`; RPC framing and storage/API adaptation live in `companion/radio-rpc.js` and `companion/nrf-api.js`.

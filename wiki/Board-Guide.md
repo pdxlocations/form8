@@ -110,7 +110,7 @@ Then send `wifi` with a newline if you missed the startup credentials.
 npm run build:firmware
 ```
 
-This builds all twelve ESP32 targets, including the experimental T-Beam BPF, and writes:
+This builds all eleven ESP32 targets, including the experimental T-Beam BPF, and writes:
 
 - `dist/form8-esp32-firmware.zip` — the complete app-only binary bundle.
 - `dist/firmware/form8-TARGET.bin` — one app image per target.
