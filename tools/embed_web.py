@@ -1,10 +1,17 @@
 """Bundle the webpage into app firmware so updates preserve incident storage."""
 from pathlib import Path
+import subprocess
+import sys
 Import("env")
 
 root = Path(env.subst("$PROJECT_DIR"))
 generated = root / ".pio" / "generated"
 generated.mkdir(parents=True, exist_ok=True)
+version = subprocess.check_output([sys.executable, str(root / 'tools/firmware_version.py')], text=True).strip()
+version_header = generated / 'FirmwareVersion.h'
+version_text = f'#pragma once\n#define FORM8_FIRMWARE_VERSION "{version}"\n'
+if not version_header.exists() or version_header.read_text() != version_text:
+    version_header.write_text(version_text)
 mimes = {"html": "text/html", "js": "text/javascript", "css": "text/css", "svg": "image/svg+xml", "webmanifest": "application/manifest+json"}
 names = ["index.html", "app.js", "theme.js", "position-client.js", "map.js", "map-model.js", "map-store.js", "model.js", "unread.js", "style.css", "sw.js", "manifest.webmanifest", "icon.svg"]
 parts = ["#pragma once\n#include <Arduino.h>\n"]

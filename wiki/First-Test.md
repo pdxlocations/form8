@@ -12,9 +12,9 @@ On **both** radios, open **Radio setup** and use the same profile:
 | Bandwidth | 500 kHz |
 | Spreading factor | 9 |
 | Coding rate | 4/8 |
-| TX power | 14 dBm |
+| TX power | 22 dBm (board maximum) |
 | Use backup preset | Unchecked |
-| Radio transmission | On |
+| Enable radio transmission | Checked |
 
 Click **Save settings** on each radio. Transmission starts disabled on a fresh device. These are starting settings for testing, not a field-validated radio configuration. Radios that already have saved settings keep them after a firmware update; check the actual values on each radio.
 

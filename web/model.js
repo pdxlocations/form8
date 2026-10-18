@@ -80,7 +80,7 @@ export function validateForm(form) {
   if (utf8(form.message).length > 2800) throw new Error('Message exceeds 2800 UTF-8 bytes.');
   if (form.recipient !== '*' && !/^[A-Z0-9/-]{3,16}$/.test(form.recipient)) throw new Error('Enter a recipient callsign or choose broadcast.');
   if (!Number.isInteger(form.priority) || form.priority < 0 || form.priority > 3) throw new Error('Choose a valid precedence.');
-  for (const key of ['subject','to','from','approvedBy','approvedPosition','signature','replyBy','replyPosition'])
+  for (const key of ['subject','to','from','approvedBy','approvedPosition','signature','replyBy','replyPosition','replySignature','replyDate','replyTime'])
     if (utf8(form[key] || '').length > 160) throw new Error(`${key} exceeds 160 UTF-8 bytes.`);
   if (form.location && (!Number.isFinite(form.location.lat) || !Number.isFinite(form.location.lon) || Math.abs(form.location.lat)>90 || Math.abs(form.location.lon)>180)) throw new Error('Invalid coordinates.');
   return form;
@@ -128,6 +128,7 @@ export function verifyArchive(record) {
 
 
 export function formDeliverySummary(meta, station) {
+  if(station.simulated)return 'Saved in simulator · no radio transmission';
   const radio=deliveryStatus(meta,station.peers||[],station.node).radio;
   const human=manualAcknowledgments(meta,station.peers||[],station.node,station.callsign);
   const parts=[];

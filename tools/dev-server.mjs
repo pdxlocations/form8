@@ -6,13 +6,13 @@ import {crc32,validateForm,validateChatText,chatEmojis,chatTimeline} from '../we
 const root=fileURLToPath(new URL('../',import.meta.url));
 const port=Number(process.env.PORT||8848);
 const stateFile=process.env.FORM8_DEMO_STATE||`${root}/tmp/demo.local.json`;
-const fresh={config:{callsign:'DEMO-1',primary:919.5,backup:0,bandwidth:500,sf:9,cr:8,power:14,useBackup:false,txEnabled:false,relayEnabled:false,paused:false,positionEnabled:true,positionInterval:600},incident:'0000000000000000',incidentName:'',incidents:[],forms:{}};
+const fresh={config:{callsign:'DEMO-1',primary:919.5,backup:0,bandwidth:500,sf:9,cr:8,power:22,useBackup:false,txEnabled:false,relayEnabled:false,paused:false,positionEnabled:true,positionInterval:600},incident:'0000000000000000',incidentName:'',incidents:[],forms:{}};
 await mkdir(`${root}/tmp`,{recursive:true});
 let state;try{state=JSON.parse(await readFile(stateFile,'utf8'));}catch{state=fresh;}
 state.chats??={};state.chatSequence??=0;
 state.formSequence??=Math.max(0,...Object.values(state.forms).map(f=>f.meta.order||0));
 for(const f of Object.values(state.forms))if(!f.meta.order){try{f.meta.trafficSentAt=JSON.parse(f.body).sentAt||0;}catch{f.meta.trafficSentAt=0;}}
-state.config.relayEnabled??=false;state.config.positionEnabled??=true;state.config.positionInterval??=600;
+state.config.power??=22;state.config.relayEnabled??=false;state.config.positionEnabled??=true;state.config.positionInterval??=600;
 let saving=Promise.resolve();
 function save(){const snapshot=JSON.stringify(state);saving=saving.catch(()=>{}).then(async()=>{await writeFile(`${stateFile}.tmp`,snapshot);await rename(`${stateFile}.tmp`,stateFile);});return saving;}
 function reply(res,code,data){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}

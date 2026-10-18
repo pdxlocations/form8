@@ -4,19 +4,23 @@
 #include <array>
 #include <cassert>
 #include <fstream>
+#include <vector>
 constexpr int GEOMETRY_128_64=0,TEXT_ALIGN_LEFT=0;
 struct SSD1306Wire {
   const uint8_t* font=ArialMT_Plain_10;
   std::array<uint8_t,128*64> pixels{};
   unsigned frames=0,overflow=0;
+  struct Label {int x,y;String text;};
+  std::vector<Label> labels;
   SSD1306Wire(int,int,int,int){}
   bool init(){return true;}
-  void clear(){pixels.fill(0);overflow=0;}
+  void clear(){pixels.fill(0);overflow=0;labels.clear();}
   void setTextAlignment(int){}
   void setFont(const uint8_t* value){font=value;}
   unsigned getStringWidth(const String& s){unsigned w=0;for(unsigned char c:s)if(c>=font[2])w+=font[4+(c-font[2])*4+3];return w;}
   void pixel(int x,int y){if(x<0||x>=128||y<0||y>=64){++overflow;return;}pixels[y*128+x]=1;}
   void drawString(int x,int y,const String& s){
+    labels.push_back({x,y,s});
     for(unsigned char c:s){
       if(c<font[2])continue;
       const auto* entry=font+4+(c-font[2])*4;

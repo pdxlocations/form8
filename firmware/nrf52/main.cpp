@@ -41,7 +41,8 @@ bool canTx(){return ready && config["txEnabled"].as<bool>() && !config["paused"]
 Known* findKnown(const Id& id){for(auto& k:known)if(k.id==id)return &k;return nullptr;}
 void event(JsonDocument& d){if(events.size()>=32)return;d["seq"]=++eventSeq;String s;serializeJson(d,s);events.push_back({eventSeq,s});}
 void receiptEvent(const Id& id,uint64_t peer,uint32_t hash,bool human,bool chat){JsonDocument d;d["event"]="receipt";d["id"]=hexId(id);d["peer"]=hex64(peer);d["hash"]=hash;d["human"]=human;d["chat"]=chat;event(d);}
-void defaults(){config["callsign"]="";config["incident"]="0000000000000000";config["incidentName"]="";config["primary"]=915.0;config["backup"]=906.0;config["useBackup"]=false;config["bandwidth"]=500;config["sf"]=9;config["cr"]=8;config["power"]=14;config["txEnabled"]=false;config["relayEnabled"]=false;config["paused"]=false;config["positionEnabled"]=true;config["positionInterval"]=600;}
+constexpr int NRF_TX_POWER_MAX_DBM=22;
+void defaults(){config["callsign"]="";config["incident"]="0000000000000000";config["incidentName"]="";config["primary"]=915.0;config["backup"]=906.0;config["useBackup"]=false;config["bandwidth"]=500;config["sf"]=9;config["cr"]=8;config["power"]=NRF_TX_POWER_MAX_DBM;config["txEnabled"]=false;config["relayEnabled"]=false;config["paused"]=false;config["positionEnabled"]=true;config["positionInterval"]=600;}
 bool saveConfig(){InternalFS.remove("/config.next");File f(InternalFS);if(!f.open("/config.next",FILE_O_WRITE))return false;size_t n=serializeJson(config,f);f.close();if(n!=measureJson(config))return false;InternalFS.remove("/config.backup");if(InternalFS.exists("/config.json")&&!InternalFS.rename("/config.json","/config.backup"))return false;if(!InternalFS.rename("/config.next","/config.json")){InternalFS.rename("/config.backup","/config.json");return false;}InternalFS.remove("/config.backup");return true;}
 void setPin(int pin,bool level){pinMode(pin,OUTPUT);digitalWrite(pin,level);}
 void rfPath(bool tx){
@@ -85,7 +86,7 @@ void initRadio(){mesh->setRelayEnabled(config["relayEnabled"]|false);ready=false
 ready=true;startRx();}
 }
 void positionJson(JsonObject d,const PositionFix& p){d["lat"]=p.lat;d["lon"]=p.lon;d["accuracy"]=p.accuracy;d["ageMs"]=p.ageMs(millis());d["source"]=p.radio?"radio":"device";d["fresh"]=p.fresh(millis());}
-void status(JsonDocument& d){d.set(config);d["node"]=hex64(nodeId);d["bootSession"]=bootSession;d["board"]=NRF_BOARD_NAME;d["band"]="uhf";d["frequency"]=config[config["useBackup"].as<bool>()?"backup":"primary"];d["powerMin"]=2;d["powerMax"]=22;
+void status(JsonDocument& d){d.set(config);d["node"]=hex64(nodeId);d["bootSession"]=bootSession;d["board"]=NRF_BOARD_NAME;d["band"]="uhf";d["frequency"]=config[config["useBackup"].as<bool>()?"backup":"primary"];d["powerMin"]=2;d["powerMax"]=NRF_TX_POWER_MAX_DBM;
 #ifdef NRF_AMPLIFIED
  d["powerIsDrive"]=true;d["powerNote"]="External amplifier; value is chip drive";
 #endif
@@ -119,7 +120,7 @@ void rpc(int transport,const String& line){JsonDocument in,out;if(deserializeJso
  }
  else if(op=="config"){
    JsonDocument before;before.set(config);String call=d["callsign"]|"";float primary=d["primary"],backup=d["backup"],bw=d["bandwidth"];int sf=d["sf"],cr=d["cr"],power=d["power"],interval=d["positionInterval"];
-   if((!d["relayEnabled"].isNull()&&!d["relayEnabled"].is<bool>())||!validPositionCall(call.c_str())||primary<850||primary>930||(backup!=0&&(backup<850||backup>930))||(d["useBackup"].as<bool>()&&backup==0)||(bw!=125 && bw!=250 && bw!=500)||sf<7||sf>12||cr<5||cr>8||power<2||power>22||interval<60||interval>86400)error="Invalid station settings";
+   if((!d["relayEnabled"].isNull()&&!d["relayEnabled"].is<bool>())||!validPositionCall(call.c_str())||primary<850||primary>930||(backup!=0&&(backup<850||backup>930))||(d["useBackup"].as<bool>()&&backup==0)||(bw!=125 && bw!=250 && bw!=500)||sf<7||sf>12||cr<5||cr>8||power<2||power>NRF_TX_POWER_MAX_DBM||interval<60||interval>86400)error="Invalid station settings";
    else{for(JsonPair p:d.as<JsonObject>())if(config[p.key()].is<bool>()||String(p.key().c_str())=="callsign"||String(p.key().c_str())=="primary"||String(p.key().c_str())=="backup"||String(p.key().c_str())=="bandwidth"||String(p.key().c_str())=="sf"||String(p.key().c_str())=="cr"||String(p.key().c_str())=="power"||String(p.key().c_str())=="positionInterval")config[p.key()]=p.value();if(!saveConfig()){config.set(before);error="Cannot save radio config";}else{initRadio();broadcasts.reset(millis());status(out);}}
  }
  else if(op=="leave"){

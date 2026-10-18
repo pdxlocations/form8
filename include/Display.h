@@ -12,6 +12,7 @@ struct StationScreen {
 };
 #if defined(FORM8_HAS_OLED)
 #include <SSD1306Wire.h>
+#include <FirmwareVersion.h>
 
 inline SSD1306Wire& stationDisplay() {
   static SSD1306Wire display(0x3c, DISPLAY_SDA, DISPLAY_SCL, GEOMETRY_128_64);
@@ -54,7 +55,15 @@ inline void showStationStatus(const String& ssid,const String& password,uint8_t 
   if(state==previous)return;previous=state;
   auto& display=stationDisplay();
   display.clear();display.setTextAlignment(TEXT_ALIGN_LEFT);display.setFont(ArialMT_Plain_10);
-  display.drawString(0,0,displayFit(display,clients?(station.callsign.isEmpty()?"Set callsign":station.callsign):ssid,100));
+  if(clients){
+    display.drawString(0,0,displayFit(display,station.callsign.isEmpty()?"Set callsign":station.callsign,100));
+  }else{
+    const String version=FORM8_FIRMWARE_VERSION;
+    const int versionWidth=display.getStringWidth(version);
+    const String label=displayFit(display,ssid,100-versionWidth-5);
+    display.drawString(0,0,label);
+    display.drawString(display.getStringWidth(label)+5,0,version);
+  }
   drawBattery(display,station.batteryMv);
   if(clients){
     display.drawString(0,11,displayFit(display,station.incident.isEmpty()?"Join an incident":station.incident));

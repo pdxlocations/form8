@@ -1,6 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {crc32, token, validateForm, receiptRows, verifyArchive, deliveryStatus, manualAcknowledgments, formDeliverySummary, canHumanAcknowledge} from '../web/model.js';
+test('simulator forms never wait for nonexistent radio acknowledgments',()=>{
+ assert.equal(formDeliverySummary({receipts:[]},{simulated:true,txEnabled:true}),'Saved in simulator · no radio transmission');
+});
+test('optional reply signature, date and time preserve old forms and enforce field byte limits',()=>{
+ const form={message:'Reply',recipient:'*',priority:0};
+ assert.equal(validateForm(form),form);
+ for(const key of ['replySignature','replyDate','replyTime']){
+   assert.equal(validateForm({...form,[key]:'A'.repeat(160)})[key].length,160);
+   assert.throws(()=>validateForm({...form,[key]:'é'.repeat(81)}),/exceeds 160 UTF-8 bytes/);
+ }
+});
 test('CRC matches the radio wire protocol, including UTF-8',()=>{
   assert.equal(crc32('123456789'),0xcbf43926);assert.equal(crc32('incident'),crc32(new TextEncoder().encode('incident')));
 });

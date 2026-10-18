@@ -22,8 +22,9 @@ previews = root / 'tmp/oled-previews'
 previews.mkdir(parents=True, exist_ok=True)
 with tempfile.TemporaryDirectory(prefix='form8-oled-') as directory:
     binary = pathlib.Path(directory) / 'display-tests'
+    (pathlib.Path(directory) / 'FirmwareVersion.h').write_text('#pragma once\n#define FORM8_FIRMWARE_VERSION "0.1.4"\n')
     subprocess.run([compiler, *extra, '-std=c++17', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
-                    '-DFORM8_HELTEC_V3', '-I'+str(root/'tests/oled_stubs'), '-I'+str(root/'include'), '-I'+str(fonts),
+                    '-DFORM8_HELTEC_V3', '-I'+directory, '-I'+str(root/'tests/oled_stubs'), '-I'+str(root/'include'), '-I'+str(fonts),
                     str(root/'tests/display.cpp'), '-o', str(binary)], check=True)
     subprocess.run([str(binary), str(previews)], check=True)
 print(f'128x64 previews: {previews}')

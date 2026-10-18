@@ -20,21 +20,30 @@ const database = new Promise((resolve, reject) => {
   req.onsuccess = () => {req.result.onversionchange=()=>req.result.close();resolve(req.result);}; req.onerror = () => reject(req.error);
   req.onblocked = () => reject(new Error('Close other Form8 tabs, then reopen this page to update local draft storage.'));
 });
+function waitForLocalStorage(operation,abort=()=>{}) {
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{
+      reject(new Error('Local draft storage timed out. Close other Form8 tabs and retry. Keep this page open to preserve your message.'));
+      try{abort();}catch{}
+    },10000);
+    Promise.resolve(operation).then(value=>{clearTimeout(timer);resolve(value);},error=>{clearTimeout(timer);reject(error);});
+  });
+}
 async function db(store, action, value) {
-  const databaseHandle = await database;
+  const databaseHandle = await waitForLocalStorage(database);
   if(store==='drafts' && ['getAll','put','delete'].includes(action))return draftRecords(databaseHandle,action,value);
-  return new Promise((resolve, reject) => {
-    const transaction = databaseHandle.transaction(store, action === 'get' || action === 'getAll' ? 'readonly' : 'readwrite');
+  const transaction = databaseHandle.transaction(store, action === 'get' || action === 'getAll' ? 'readonly' : 'readwrite');
+  return waitForLocalStorage(new Promise((resolve, reject) => {
     const request = transaction.objectStore(store)[action](value);
     transaction.oncomplete = () => resolve(request.result);
     transaction.onerror = () => reject(transaction.error); transaction.onabort = () => reject(transaction.error || new Error('Local save aborted'));
-  });
+  }),()=>transaction.abort());
 }
 function draftRecords(databaseHandle,action,value) {
   // Number assignment, draft updates, and counter resets share one transaction
   // so autosave and other browser tabs cannot allocate the same number.
-  return new Promise((resolve,reject)=>{
-    const transaction=databaseHandle.transaction(['drafts','settings'],'readwrite');
+  const transaction=databaseHandle.transaction(['drafts','settings'],'readwrite');
+  return waitForLocalStorage(new Promise((resolve,reject)=>{
     const drafts=transaction.objectStore('drafts'),settings=transaction.objectStore('settings');
     const records=drafts.getAll(),counter=settings.get('untitled-counter');
     let ready=0,result;
@@ -61,7 +70,7 @@ function draftRecords(databaseHandle,action,value) {
     transaction.oncomplete=()=>resolve(action==='getAll'?result.drafts:action==='put'?value.id:undefined);
     transaction.onerror=()=>reject(transaction.error);
     transaction.onabort=()=>reject(transaction.error||new Error('Draft save aborted'));
-  });
+  }),()=>transaction.abort());
 }
 async function api(path, body) {
   const method = body === undefined ? 'GET' : 'POST';
@@ -108,6 +117,7 @@ function showTab(tab) {
 for(const b of document.querySelectorAll('nav button'))b.onclick=()=>showTab(b.dataset.tab);
 function values() {
   const d=Object.fromEntries(new FormData(form));d.type='net-form-8';d.priority=Number(d.priority);
+  for(const key of ['replySignature','replyDate','replyTime'])if(!d[key])delete d[key];
   d.recipient=d.addressMode==='broadcast'?'*':(d.recipient||'').trim().toUpperCase();delete d.addressMode;
   if(d.lat!=='' && d.lon!=='')d.location={...(locationData||{source:'manual',capturedAt:new Date().toISOString(),fixAgeMs:0}),lat:Number(d.lat),lon:Number(d.lon)};
   if(boundIncident)d.boundIncident=boundIncident;
@@ -145,6 +155,7 @@ function fill(d={}) {
 function counts() {
   $('#body-count').textContent=`${utf8(form.elements.message.value).length} / 2800 bytes`;
   $('#parent-note').textContent=form.elements.parent.value?`Linked to ${form.elements.parent.value.slice(-8)}`:'';
+  $('#compose-reply-note').textContent=form.elements.parent.value?`This response is linked to message ${form.elements.parent.value.slice(-8)}. Write the response in Message above.`:'Use Reply on a received message to send a linked response.';
   $('#location-info').textContent=locationData?`${locationData.source} · captured ${locationData.capturedAt} · fix age ${Math.round((locationData.fixAgeMs||0)/1000)}s at capture`:'Manual coordinates will be attached if both fields are filled.';
 }
 form.oninput=()=>{counts();$('#draft-state').textContent='Saving…';clearTimeout(draftTimer);draftTimer=setTimeout(()=>run(saveDraft)(),400);};
@@ -163,7 +174,7 @@ form.onsubmit=run(async event=>{
   event.preventDefault();if(formSubmitting)return;
   formSubmitting=true;clearTimeout(draftTimer);
   // Paint feedback before the first storage or radio await, including on Traffic.
-  formSendStatus('Sending to radio…',true);
+  formSendStatus(status?.simulated?'Saving in simulator…':'Sending to radio…',true);
   const target=status?{node:status.node,incident:status.incident,companionStorage:status.companionStorage}:null;
   let confirmed=false;
   try {
@@ -175,7 +186,7 @@ form.onsubmit=run(async event=>{
     boundIncident=d.boundIncident;
     if(status?.node!==target.node || status?.incident!==target.incident)throw new Error('Radio or incident changed. Your draft is saved; reconnect before sending.');
     const result=await api('forms',d);confirmed=true;
-    const message=`Form ${result.id.slice(-8)} saved to ${target.companionStorage?'companion':'radio'}${status?.paused||!status?.txEnabled?' · radio transmission off':' · awaiting radio ACK'}.`;
+    const message=status?.simulated?`Form ${result.id.slice(-8)} saved in simulator · no radio transmission.`:`Form ${result.id.slice(-8)} saved to ${target.companionStorage?'companion':'radio'}${status?.paused||!status?.txEnabled?' · radio transmission off':' · awaiting radio ACK'}.`;
     formSendStatus(message);feedback(message);$('#feedback').dataset.form=`${target.node}/${result.id}`;
     await db('drafts','delete',d.clientToken);fill();await saveDraft();
     if(status?.node===target.node && status?.incident===target.incident){showTab('traffic');await openForm(result.id);await poll();}
@@ -445,6 +456,7 @@ async function refreshScreen() {
     $('#connection').textContent=next.companionConnected===false?'Radio disconnected · companion data available':next.simulated?'Simulation · no RF':next.paused||!next.txEnabled?'Connected · Radio transmission off':'Connected to radio';
     await syncRadioTime(next,reconnected);
     $('#active-name').textContent=next.incidentName||'Choose an incident';
+    $('#compose-incident').value=next.incidentName||(next.incident==='0000000000000000'?'Choose an incident':next.incident);
     $('#incident-id').textContent=next.incident==='0000000000000000'?'No incident selected':`Incident ID ${next.incident}`;
     $('#radio-diagnostics').textContent=`RX packets ${next.rxPackets||0} · Valid frames ${next.rxFrames||0} · TX frames ${next.txFrames||0} · RX errors ${next.rxErrors||0} · Last RX error ${next.lastRxError||0} · Dropped from queue ${next.dropped||0}${next.receiveError?` · ${next.receiveError}`:''}`;
     $('#station').textContent=`${next.callsign||'Callsign not set'} · ${next.frequency.toFixed(3)} MHz · ${next.peers.filter(p=>p.online&&p.incident===next.incident&&next.incident!=='0000000000000000').length} nearby incident nodes · ${next.peers.filter(p=>p.online).length} nodes heard`;
@@ -461,7 +473,7 @@ async function refreshScreen() {
     if(!settingsLoaded || !settingsDirty){
       const f=$('#radio-settings');for(const key of ['callsign','primary','backup','bandwidth','sf','cr','power'])f.elements[key].value=String(next[key]);
       for(const key of ['useBackup','relayEnabled'])f.elements[key].checked=key==='relayEnabled'?(next[key]??false):next[key];
-      f.elements.transmission.value=next.txEnabled&&!next.paused?'on':'off';
+      f.elements.transmission.checked=next.txEnabled&&!next.paused;
       f.elements.positionEnabled.checked=next.positionEnabled??true;f.elements.positionMinutes.value=String((next.positionInterval||600)/60);
       settingsLoaded=true;
     }
@@ -509,10 +521,10 @@ async function loadTraffic() {
   for(const m of result.forms){
     const row=text('div','','traffic-item'),description=text('div','');
     const heading=text('div','','traffic-subject');
-    heading.append(text('span',priorities[m.priority],'badge'+(m.priority===3?' urgent':'')),text('strong',m.subject||'(No subject)'));
+    heading.append(text('span',priorities[m.priority],'badge'+(m.priority===3?' urgent':'')),button(m.subject||'(No subject)',()=>openForm(m.id),'traffic-open'));
     if(m.unread)heading.append(text('span','Unread','badge'));
     description.append(heading,text('p',`From: ${m.from||'—'} · To: ${m.to||'—'}`,'traffic-addresses'),text('p',`${m.sender} → ${m.recipient==='*'?'Broadcast':m.recipient} · ${m.state}`));
-    const delivery=deliveryStatus(m,status?.peers||[],status?.node),receipt=text('span',delivery.complete?'Radio ACK':'Pending ACK','traffic-receipt'+(delivery.complete?' acked':''));receipt.title=delivery.label;
+    const delivery=deliveryStatus(m,status?.peers||[],status?.node),receipt=text('span',status?.simulated?'Simulation':delivery.complete?'Radio ACK':'Pending ACK','traffic-receipt'+(!status?.simulated&&delivery.complete?' acked':''));receipt.title=status?.simulated?'Saved in simulator · no radio transmission':delivery.label;
     const actions=text('div','','traffic-actions');actions.append(button('Open',()=>openForm(m.id)));
     if(m.state==='stored')actions.append(messageCleanupButton('Archive',m,archiveMessage),messageCleanupButton('Remove…',m,removeMessage,'danger'));
     row.append(description,receipt,actions);list.append(row);
@@ -565,9 +577,23 @@ function renderForm(record) {
   detail.append(text('h3',m.subject||'General message'),text('p',`ID ${m.id} · ${m.state}`,'muted'));
   if(record.body){
     const d=JSON.parse(record.body);
-    detail.append(text('p',`From: ${d.from||d.sender} · To: ${d.to||d.recipient} · ${d.date||''} ${d.time||''}`),text('pre',d.message,'message'));
-    if(d.location)detail.append(text('p',`${d.location.lat}, ${d.location.lon} · ${d.location.source} · fix age ${d.location.fixAgeMs||0} ms`,'muted'));
-    if(d.parent)detail.append(text('p',`Reply/correction linked to ${d.parent}`,'muted'));
+    const sheet=text('div','','paper-form received-form');
+    const field=(label,value,layout='',message=false)=>{
+      const cell=text('div','','paper-field received-field'+(layout?' '+layout:''));
+      cell.append(text('span',label,'received-field-label'),text(message?'pre':'p',value||'—',message?'message':'received-field-value'));
+      return cell;
+    };
+    sheet.append(field('1. Incident name',d.incidentName||d.incident||m.incident),
+      field('2. To · name and position',d.to||d.recipient),field('3. From · name and position',d.from||d.sender),
+      field('4. Subject',`${priorities[d.priority??m.priority]||'Routine'}: ${d.subject||m.subject||'—'}`,'paper-subject'),field('5. Date',d.date,'paper-date'),field('6. Time · local',d.time,'paper-time'),
+      field('7. Message',d.message,'',true),
+      field('8. Approved by · name',d.approvedBy,'paper-third'),field('Signature',d.signature,'paper-third'),field('Position / title',d.approvedPosition,'paper-third'));
+    const reply=field('9. Reply',d.parent?`Reply/correction linked to ${d.parent}`:'Replies are sent as linked messages.');
+    if(canReplyToForm(m,status))reply.append(button('Reply',()=>replyToForm(record)));
+    sheet.append(reply,field('10. Replied by · name',d.replyBy,'paper-third'),field('Position / title',d.replyPosition,'paper-third'),field('Signature',d.replySignature,'paper-third'),
+      field('','ICS 213','paper-third paper-form-code'),field('Reply date',d.replyDate,'paper-third'),field('Reply time · local',d.replyTime,'paper-third'));
+    if(d.location)sheet.append(field('Location',`${d.location.lat}, ${d.location.lon} · ${d.location.source} · fix age ${d.location.fixAgeMs||0} ms`));
+    detail.append(sheet);
     const actions=text('div','','actions');
     const acknowledged=(m.receipts||[]).some(receipt=>receipt.id===status?.node && receipt.human);
     const acknowledge=button(acknowledged?'Acknowledged':'Acknowledge',async()=>{
@@ -593,7 +619,6 @@ function renderForm(record) {
       resend.title='Resend the original form with the same ID and contents. Join its incident and turn Radio transmission On first.';
       actions.append(resend);
     }
-    if(canReplyToForm(m,status))actions.append(button('Reply',()=>replyToForm(record)));
     actions.append(button('Correction',async()=>{
       await saveDraft();const corrected={...d,clientToken:token(),parent:id,subject:`Correction: ${d.subject||''}`.slice(0,160)};delete corrected.boundIncident;fill(corrected);await saveDraft();showTab('compose');
     }));detail.append(actions);
@@ -604,7 +629,7 @@ function renderForm(record) {
     detail.append(text('p',m.state==='archived'?'This message was archived on the device that saved it. Its body has been removed from Traffic.':'This message was removed locally. Other nodes may still have a copy.','muted'));
     if(m.state==='archived')detail.append(button('Open device archive',()=>showTab('archive')));
   }
-  const delivery=text('div','');delivery.id='delivery-detail';delivery.setAttribute('aria-live','polite');detail.append(delivery);renderReceipts(m);
+  const delivery=text('div','','message-receipts');delivery.id='delivery-detail';delivery.setAttribute('aria-live','polite');detail.append(delivery);renderReceipts(m);
 }
 const messageCleanupPending=new Set();
 function messageCleanupButton(label,meta,action,kind='secondary'){
@@ -758,14 +783,9 @@ $('#radio-settings').onsubmit=run(async event=>{
   for(const key of ['primary','backup','bandwidth','sf','cr','power'])d[key]=Number(f.elements[key].value);
   for(const key of ['useBackup','relayEnabled'])d[key]=f.elements[key].checked;
   // Keep older radio APIs compatible while clearing their legacy pause override.
-  d.txEnabled=f.elements.transmission.value==='on';d.paused=false;
+  d.txEnabled=f.elements.transmission.checked;d.paused=false;
   d.positionEnabled=f.elements.positionEnabled.checked;d.positionInterval=Number(f.elements.positionMinutes.value)*60;
   const result=await api('config',d);settingsLoaded=false;settingsDirty=false;await poll();feedback(result.radioReady?'Station settings saved.':'Settings saved; radio initialization failed. Check modem settings.',!result.radioReady);
-});
-$('#sync-time').onclick=run(async()=>{
-  await api('time',{epoch:Math.floor(Date.now()/1000)});
-  if(status){timeSyncTarget=radioClockKey(status);timeSynced=true;timeSyncRetryAt=0;status.clockSource='phone/laptop';}
-  await poll();feedback('Radio time updated from this device.');
 });
 async function start() {
   $('#hide-offline-nodes').checked=(await db('settings','get','nodes-hide-offline'))?.value===true;

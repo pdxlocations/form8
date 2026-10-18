@@ -52,6 +52,7 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "FORM8_VERSION=$tag" >> "$GITHUB_ENV"
 
       - name: Set up Python
         uses: actions/setup-python@v7

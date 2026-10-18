@@ -1,5 +1,7 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
  <path android:fillColor="#15382e" android:pathData="M0,0H108V108H0Z"/>
- <!-- Form8 numeral: two counters kept as negative space using even-odd fill. -->
+ <!-- Center the numeral within the icon and leave space around it. -->
+ <group android:pivotX="54" android:pivotY="61" android:scaleX="0.8" android:scaleY="0.8" android:translateY="-7">
  <path android:fillColor="#ffffff" android:fillType="evenOdd" android:pathData="M54,23C70,23 80,32 80,44C80,51 76,56 71,59C78,63 82,69 82,77C82,91 71,99 54,99C37,99 26,91 26,77C26,69 30,63 37,59C32,56 28,51 28,44C28,32 38,23 54,23ZM54,35C46,35 42,39 42,45C42,51 46,54 54,54C62,54 66,51 66,45C66,39 62,35 54,35ZM54,65C45,65 40,69 40,76C40,83 45,87 54,87C63,87 68,83 68,76C68,69 63,65 54,65Z"/>
+ </group>
 </vector>

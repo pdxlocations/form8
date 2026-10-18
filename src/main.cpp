@@ -60,7 +60,7 @@ bool transmittingLast=false;
 String clockSource="unsynchronized";
 float primary=VHF?146.780f:919.500f, backup=0, bandwidth=500;
 uint8_t spreading=9, coding=8;
-int8_t power=VHF?10:14;
+int8_t power=TX_POWER_MAX_DBM;
 bool useBackup=false;
 constexpr size_t STORAGE_RESERVE=256*1024, MAX_RECORDS=512, MAX_PEERS=32;
 struct Peer { uint64_t id=0, incident=0; String call, name; uint32_t last=0,session=0; PositionFix position; uint32_t positionSession=0,positionSequence=0; float rssi=0,snr=0; bool signalKnown=false,relayed=false; };
@@ -152,7 +152,7 @@ bool validForm(const JsonDocument& d) {
   if(String(d["type"]|"")!="net-form-8" || !validCall(d["sender"]|""))return false;
   String to=d["recipient"]|"*";
   if(to!="*" && !validCall(to))return false;
-  for(const char* key:{"subject","to","from","approvedBy","approvedPosition","signature","replyBy","replyPosition"}) {
+  for(const char* key:{"subject","to","from","approvedBy","approvedPosition","signature","replyBy","replyPosition","replySignature","replyDate","replyTime"}) {
     if(!d[key].isNull() && !d[key].is<const char*>())return false;
     if(String(d[key]|"").length()>160)return false;
   }

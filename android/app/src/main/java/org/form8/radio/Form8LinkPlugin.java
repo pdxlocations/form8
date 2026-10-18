@@ -35,7 +35,10 @@ public class Form8LinkPlugin extends Plugin {
       CCC = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
   private final Handler handler = new Handler(Looper.getMainLooper());
   private final ExecutorService usbExecutor = Executors.newSingleThreadExecutor();
-  private BluetoothGatt gatt;
+  private volatile BluetoothGatt gatt;
+  private final BleReconnectPolicy bleReconnect = new BleReconnectPolicy();
+  private BluetoothDevice bleDevice;
+  private long bleSession;
   private BluetoothGattCharacteristic rx;
   private BluetoothLeScanner scanner;
   private BluetoothGattCharacteristic pendingSubscription;
@@ -200,6 +203,10 @@ public class Form8LinkPlugin extends Plugin {
 
   @PluginMethod
   public void connectBle(PluginCall call) {
+    handler.post(() -> connectBleOnMain(call));
+  }
+
+  private void connectBleOnMain(PluginCall call) {
     try {
 
       if (!permission(call)) return;
@@ -210,12 +217,14 @@ public class Form8LinkPlugin extends Plugin {
         return;
       }
       close("Changing connection");
+      finishScan(null);
       connectCall = call;
       transport = "ble";
       mtu = 23;
       try {
-        BluetoothDevice d = a.getRemoteDevice(address);
-        gatt = d.connectGatt(getContext(), false, gattCallback, BluetoothDevice.TRANSPORT_LE);
+        bleDevice = a.getRemoteDevice(address);
+        bleSession = bleReconnect.begin();
+        scheduleBleAttempt(call, bleSession);
         handler.postDelayed(
             () -> {
               try {
@@ -232,14 +241,41 @@ public class Form8LinkPlugin extends Plugin {
             },
             60000);
       } catch (Exception e) {
-        connectCall = null;
-        call.reject(e.getMessage());
+        close("Cannot connect Bluetooth: " + e.getMessage());
       }
 
     } catch (SecurityException e) {
       call.reject("Bluetooth permission was revoked");
       close("Bluetooth permission was revoked");
     }
+  }
+
+  private void scheduleBleAttempt(PluginCall call, long session) {
+    handler.postDelayed(
+        () -> {
+          if (connectCall != call || !bleReconnect.startAttempt(session)) return;
+          try {
+            gatt = bleDevice.connectGatt(
+                getContext(), false, gattCallback, BluetoothDevice.TRANSPORT_LE);
+            if (gatt == null) close("Android could not start a Bluetooth connection. Try again.");
+          } catch (SecurityException e) {
+            close("Bluetooth permission was revoked");
+          } catch (Exception e) {
+            close("Cannot connect Bluetooth: " + e.getMessage());
+          }
+        },
+        bleReconnect.delayMillis(SystemClock.elapsedRealtime()));
+  }
+
+  private void bluetoothFailure(int status, String reason) {
+    if (connectCall != null && !connected && bleReconnect.retryable(status)) {
+      releaseGatt();
+      notifyConnection("Bluetooth connection failed (133). Retrying "
+          + bleReconnect.nextAttempt() + " of 3…");
+      scheduleBleAttempt(connectCall, bleSession);
+      return;
+    }
+    close(reason + (status == 133 ? ". Try connecting again; if it persists, toggle phone Bluetooth off and on." : ""));
   }
 
   private final BluetoothGattCallback gattCallback =
@@ -254,8 +290,7 @@ public class Form8LinkPlugin extends Plugin {
                   if (status != BluetoothGatt.GATT_SUCCESS
                       || state == BluetoothProfile.STATE_DISCONNECTED) {
                     String reason = "Bluetooth disconnected (GATT status " + status + ")";
-                    failConnect(reason);
-                    close(reason);
+                    bluetoothFailure(status, reason);
                   } else if (state == BluetoothProfile.STATE_CONNECTED) {
                     if (!g.requestMtu(247)) g.discoverServices();
                   }
@@ -289,10 +324,14 @@ public class Form8LinkPlugin extends Plugin {
                 try {
 
                   if (g != gatt) return;
+                  if (status != BluetoothGatt.GATT_SUCCESS) {
+                    bluetoothFailure(status, "Bluetooth service discovery failed: " + status);
+                    return;
+                  }
                   BluetoothGattService s = g.getService(SERVICE);
                   BluetoothGattCharacteristic tx = s == null ? null : s.getCharacteristic(TX);
                   rx = s == null ? null : s.getCharacteristic(RX);
-                  if (status != 0 || tx == null || rx == null) {
+                  if (tx == null || rx == null) {
                     failConnect("Form8 UART service unavailable");
                     close("Service unavailable");
                     return;
@@ -327,11 +366,11 @@ public class Form8LinkPlugin extends Plugin {
 
                   if (g != gatt) return;
                   if (status != 0) {
-                    failConnect("Cannot subscribe to radio: " + status);
-                    close("Subscribe failed");
+                    bluetoothFailure(status, "Cannot subscribe to radio: " + status);
                     return;
                   }
                   connected = true;
+                  bleReconnect.cancel();
                   notifyConnection("");
                   if (connectCall != null) {
                     connectCall.resolve();
@@ -453,6 +492,10 @@ public class Form8LinkPlugin extends Plugin {
 
   @PluginMethod
   public void connectUsb(PluginCall call) {
+    handler.post(() -> connectUsbOnMain(call));
+  }
+
+  private void connectUsbOnMain(PluginCall call) {
     UsbManager m = (UsbManager) getContext().getSystemService(Context.USB_SERVICE);
     UsbDevice device = null;
     for (UsbDevice d : m.getDeviceList().values())
@@ -650,17 +693,23 @@ public class Form8LinkPlugin extends Plugin {
 
   @PluginMethod
   public void disconnect(PluginCall call) {
-    close("Disconnected");
-    call.resolve();
+    handler.post(() -> {
+      close("Disconnected");
+      call.resolve();
+    });
   }
 
-  private void close(String reason) {
-    connected = false;
+  private void releaseGatt() {
     if (gatt != null) {
       BluetoothGatt old = gatt;
       gatt = null;
+      bleReconnect.closed(SystemClock.elapsedRealtime());
       try {
         old.disconnect();
+      } catch (SecurityException ignored) {
+      } catch (Exception ignored) {
+      }
+      try {
         old.close();
       } catch (SecurityException ignored) {
       } catch (Exception ignored) {
@@ -668,6 +717,18 @@ public class Form8LinkPlugin extends Plugin {
     }
     rx = null;
     pendingSubscription = null;
+    mtu = 23;
+  }
+
+  private void close(String reason) {
+    if (Looper.myLooper() != handler.getLooper()) {
+      handler.post(() -> close(reason));
+      return;
+    }
+    connected = false;
+    bleReconnect.cancel();
+    bleDevice = null;
+    releaseGatt();
     UsbDeviceConnection c = usb;
     usb = null;
     if (c != null) {

@@ -65,7 +65,7 @@ For ESP32 Bluetooth with Wi-Fi handoff, use the [Bluetooth guide](https://github
 5. Wait for the connected board name and node ID. Set your callsign, matching frequency/modem settings, and **Radio transmission → On**, then save.
 6. Create or join an incident. A second radio must join the **same Incident ID**, not merely create another incident with the same name.
 
-Defaults: **915 MHz, BW 500 kHz, SF9, CR 4/8, 14 dBm chip setting**, with transmission disabled until configured. On T096 the setting is chip drive before external amplification. All participants must match the modem settings. ESP32 and nRF nodes use the same Form8 LoRa protocol and can exchange traffic; interoperability still needs physical testing.
+Defaults: **915 MHz, BW 500 kHz, SF9, CR 4/8, 22 dBm chip setting (maximum supported setting)**, with transmission disabled until configured. On T096 the setting is chip drive before external amplification. All participants must match the modem settings. ESP32 and nRF nodes use the same Form8 LoRa protocol and can exchange traffic; interoperability still needs physical testing.
 
 ## Connect over USB serial
 

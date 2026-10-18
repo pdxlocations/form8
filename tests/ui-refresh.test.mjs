@@ -2,16 +2,17 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {manualAcknowledgments, receiptRows, formDeliverySummary, canReplyToForm, canHumanAcknowledge, canResendForm} from '../web/model.js';
+import {priorities,manualAcknowledgments, receiptRows, formDeliverySummary, canReplyToForm, canHumanAcknowledge, canResendForm} from '../web/model.js';
 
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
+function descendants(element){return (element.children||[]).flatMap(child=>[child,...descendants(child)]);}
 function harness(){
   const elements=new Map(),calls=[];
   function element(){return {hidden:true,children:[],elements:new Proxy({}, {get:(target,key)=>target[key]??=( {value:'',checked:false})}),replaceChildren(...items){this.children=[...items];},append(...items){this.children.push(...items);},setAttribute(){},dataset:{},classList:{toggle(){}}};}
   const $=selector=>{if(!elements.has(selector))elements.set(selector,element());return elements.get(selector);};
   let next={node:'radio1',bootSession:1,callsign:'TEST2',frequency:919.5,peers:[],incident:'42',incidentName:'Test',storageUsed:0,storageTotal:1048576,queue:0,fsReady:true,radioReady:true,txEnabled:true,band:'uhf',board:'Heltec',clockSource:'unset',power:14};
   let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
-  const context=vm.createContext({document:{querySelectorAll(){return [];}},updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,canHumanAcknowledge,canResendForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value,className)=>({...element(),tag,value,className}),button:(label,onclick)=>({label,textContent:label,onclick,dataset:{}}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>{calls.push('traffic');if(vm.runInContext('selectedForm && openRecord',context))context.renderForm({...record,body:record.meta.state==='stored'?record.body:undefined});},loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
+  const context=vm.createContext({priorities,document:{querySelectorAll(){return [];}},updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,canHumanAcknowledge,canResendForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value,className)=>({...element(),tag,value,className}),button:(label,onclick)=>({label,textContent:label,onclick,dataset:{}}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>{calls.push('traffic');if(vm.runInContext('selectedForm && openRecord',context))context.renderForm({...record,body:record.meta.state==='stored'?record.body:undefined});},loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
   const originalApi=context.api;context.api=async(path,body)=>path==='time'?(calls.push({path,body}),{saved:true}):originalApi(path,body);
   vm.runInContext("let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();const identityRequests=new Map();const forgettingNodes=new Set();const deletingIncidents=new Set();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
   return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};
@@ -32,7 +33,7 @@ test('incoming status refreshes counts, visible traffic, incident membership and
 test('open form refreshes body/state without marking other incoming forms read',async()=>{
   const h=harness();h.$('#traffic').hidden=false;vm.runInContext("selectedForm='abc'",h.context);
   await h.poll();
-  assert.ok(h.$('#form-detail').children.some(e=>e.value==='New message'));
+  assert.ok(descendants(h.$('#form-detail')).some(e=>e.value==='New message'));
   h.setRecord({meta:{id:'abc',state:'offloaded',subject:'Hello'}});await h.poll();
   assert.ok(h.$('#form-detail').children.some(e=>e.value?.includes('removed locally')));
   assert.ok(!h.calls.includes('read'));
@@ -228,23 +229,24 @@ test('Nodes refreshes all incident memberships and packet signal/time without ex
 });
 
 
-test('single transmission selector reflects effective legacy enable/pause state and preserves an edit',async()=>{
+test('transmission checkbox reflects effective legacy enable/pause state and preserves an edit',async()=>{
  const h=harness();
- for(const [txEnabled,paused,expected] of [[true,false,'on'],[true,true,'off'],[false,false,'off'],[false,true,'off']]){
-  h.update({txEnabled,paused});await h.poll();assert.equal(h.$('#radio-settings').elements.transmission.value,expected);
+ for(const [txEnabled,paused,expected] of [[true,false,true],[true,true,false],[false,false,false],[false,true,false]]){
+  h.update({txEnabled,paused});await h.poll();assert.equal(h.$('#radio-settings').elements.transmission.checked,expected);
  }
- h.$('#radio-settings').elements.transmission.value='on';vm.runInContext('settingsDirty=true',h.context);h.update({txEnabled:false,paused:true});await h.poll();assert.equal(h.$('#radio-settings').elements.transmission.value,'on');
+ h.$('#radio-settings').elements.transmission.checked=true;vm.runInContext('settingsDirty=true',h.context);h.update({txEnabled:false,paused:true});await h.poll();assert.equal(h.$('#radio-settings').elements.transmission.checked,true);
 });
 
-test('single transmission selector saves On/Off and clears the legacy pause override',async()=>{
- const html=readFileSync(new URL('../web/index.html',import.meta.url),'utf8');assert.match(html,/<select name="transmission"/);assert.doesNotMatch(html,/name="(?:txEnabled|paused)"/);
- const controls={};for(const name of ['callsign','primary','backup','bandwidth','sf','cr','power','positionMinutes','transmission'])controls[name]={value:name==='callsign'?' test ':name==='transmission'?'on':'10'};
+test('transmission checkbox saves On/Off and clears the legacy pause override',async()=>{
+ const html=readFileSync(new URL('../web/index.html',import.meta.url),'utf8');assert.match(html,/<input type="checkbox" name="transmission"/);assert.doesNotMatch(html,/name="(?:txEnabled|paused)"/);
+ const controls={};for(const name of ['callsign','primary','backup','bandwidth','sf','cr','power','positionMinutes','transmission'])controls[name]={value:name==='callsign'?' test ':'10'};
  for(const name of ['useBackup','relayEnabled','positionEnabled'])controls[name]={checked:false};
+ controls.transmission.checked=true;
  const f={elements:controls},saved=[];
  const context=vm.createContext({$:()=>f,run:fn=>fn,api:async(path,data)=>{assert.equal(path,'config');saved.push(data);return {radioReady:true};},poll:async()=>{},feedback(){}});
- vm.runInContext("let settingsLoaded=true,settingsDirty=true;"+source.slice(source.indexOf("$('#radio-settings').onsubmit="),source.indexOf("$('#sync-time').onclick=")),context);
+ vm.runInContext("let settingsLoaded=true,settingsDirty=true;"+source.slice(source.indexOf("$('#radio-settings').onsubmit="),source.indexOf('async function start()')),context);
  await f.onsubmit({preventDefault(){},target:f});assert.equal(saved[0].txEnabled,true);assert.equal(saved[0].paused,false);assert.equal(saved[0].relayEnabled,false);
- controls.transmission.value='off';await f.onsubmit({preventDefault(){},target:f});assert.equal(saved[1].txEnabled,false);assert.equal(saved[1].paused,false);
+ controls.transmission.checked=false;await f.onsubmit({preventDefault(){},target:f});assert.equal(saved[1].txEnabled,false);assert.equal(saved[1].paused,false);
 });
 
 
@@ -260,7 +262,7 @@ test('reader displays the body before read-marker completion and reuses it for m
  };
  vm.runInContext('let total=0;'+source.slice(source.indexOf('async function loadTraffic()'),source.indexOf('async function replyToForm')),h.context);
  const opening=vm.runInContext("openForm('abc')",h.context);await new Promise(resolve=>setImmediate(resolve));
- assert(h.$('#form-detail').children.some(e=>e.value==='Visible immediately'));assert(finishRead);assert.equal(bodyReads,1);
+ assert(descendants(h.$('#form-detail')).some(e=>e.value==='Visible immediately'));assert(finishRead);assert.equal(bodyReads,1);
  await h.poll();assert.equal(bodyReads,1);meta.receipts=[{id:'other',human:true}];await h.poll();assert.equal(bodyReads,1);
  finishRead({saved:true});await opening;assert.equal(bodyReads,1);
 });

@@ -77,7 +77,7 @@ Yes. GPS and LoRa position reports work without internet. Download USGS topo til
 
 ## Is TX power in dBm, and can I select 22?
 
-Yes. SX1262 targets accept 2–22 dBm, SX1276 accepts 2–20 dBm, and T-Beam BPF is limited to 2–10 dBm. Radio setup shows the connected board's range. For Heltec V4 the field is labeled **TX chip drive**, because its external amplifier changes final output. See [board power settings](Board-Guide#tx-power-settings).
+Yes. SX1262 targets accept 2–22 dBm, SX1276 accepts 2–20 dBm, and T-Beam BPF is limited to 2–10 dBm. New configurations start at the maximum for the board; existing saved power settings are preserved. Radio setup shows the connected board's range. For Heltec V4 the field is labeled **TX chip drive**, because its external amplifier changes final output. See [board power settings](Board-Guide#tx-power-settings).
 
 ## Can I use an nRF52 board?
 

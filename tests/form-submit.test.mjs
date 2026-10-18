@@ -36,3 +36,19 @@ test('switching radio while saving prevents submitting to the wrong node',async(
  const h=harness(),sending=h.submit();vm.runInContext("status={node:'other',incident:'incident'}",h.context);h.storage.resolve();
  await assert.rejects(sending,/Radio or incident changed/);assert(!h.calls.includes('send'));assert.equal(h.$('#form-send').disabled,false);
 });
+test('simulator submission reports local storage instead of waiting for a radio ACK',async()=>{
+ const h=harness();vm.runInContext('status.simulated=true',h.context);
+ const sending=h.submit();assert.equal(h.$('#form-send-status').textContent,'Saving in simulator…');
+ h.storage.resolve();await tick();h.radio.resolve({id:'12345678'});await tick();
+ assert.match(h.$('#traffic-send-status').textContent,/saved in simulator.*no radio transmission/);
+ h.cleanup.resolve();await sending;assert.equal(h.$('#form-send').disabled,false);
+});
+test('stalled local storage aborts its transaction and releases submission for retry',async()=>{
+ let timeout,aborted=0;
+ const h=harness();Object.assign(h.context,{setTimeout:fn=>{timeout=fn;return 1;},clearTimeout(){}});
+ vm.runInContext(source.slice(source.indexOf('function waitForLocalStorage('),source.indexOf('async function db(')),h.context);
+ vm.runInContext('saveDraft=()=>waitForLocalStorage(new Promise(()=>{}),()=>abortStorage())',Object.assign(h.context,{abortStorage:()=>aborted++}));
+ const sending=h.submit(),failed=assert.rejects(sending,/Local draft storage timed out/);timeout();await failed;
+ assert.equal(aborted,1);assert.equal(h.$('#form-send').disabled,false);assert.equal(h.form['aria-busy'],'false');
+ assert(!h.calls.includes('send'));assert(!h.calls.includes('delete'));assert(!h.calls.includes('fill'));
+});

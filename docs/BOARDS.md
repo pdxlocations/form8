@@ -203,6 +203,6 @@ The board-specific constants live in `include/BoardConfig.h`; radio setup lives 
 | T3-S3 SX1276, original T-Beam SX1276, T-LoRa V1.3 / V2.1-1.6 | 2–20 dBm | SX1276 transmit power setting |
 | T-Beam BPF | 2–10 dBm | Board-specific VHF limit |
 
-The default remains 14 dBm on UHF boards and 10 dBm on T-Beam BPF. Existing valid saved values are preserved; an out-of-range saved value is clamped to the supported range during startup.
+New configurations default to the board’s maximum allowed setting: **22 dBm** for SX1262 ESP32 and supported nRF52840 targets, **20 dBm** for SX1276 ESP32 targets, and **10 dBm** for T-Beam BPF. On amplified boards this remains chip drive, not measured antenna output. Existing valid saved values are preserved; ESP32 firmware clamps an out-of-range saved value to the supported range during startup.
 
 The chip limits follow [Semtech's SX1262/SX1276 specifications](https://www.semtech.com/uploads/design-support/semtech-products-shortform-catalog-web.pdf). Heltec V4 includes external amplification; [Heltec describes the high-power board as up to 28 dBm](https://heltec.org/project/wifi-lora-32-v4/). Form8 does not currently calibrate or convert the V4 chip setting into measured antenna-port power. The 22 dBm setting is not a claim of 22 dBm final output on that board. Physical output still needs RF measurement.
