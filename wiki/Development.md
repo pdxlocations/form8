@@ -46,3 +46,7 @@ The wiki must first have an initial Home page created through GitHub’s Wiki ta
 ## ESP32 Bluetooth implementation
 
 `include/ApiGateway.h` dispatches both HTTP and BLE onto the same API handlers on the Arduino main loop. NimBLE callbacks enqueue bounded fragments; they do not write LittleFS or alter LoRa state. `include/EspBleBridge.h` provides paired/encrypted Nordic UART transport and idle timeouts. The main loop suspends/restores Wi-Fi after authenticated Bluetooth connection/disconnection. Android identifies the ESP32 pairing marker, waits for bonding, and selects `companion/radio-api.js`; nRF keeps its existing companion storage adapter. The portable API gateway test covers two-way HTTP/BLE shared writes/reads, request IDs, Unicode, framing, bad routes, and rejected writes with the firmware's ArduinoJson version. Physical pairing, timeout recovery, and RF coexistence still need device testing.
+
+## Heltec V3 performance configuration
+
+The effective release build uses a **240 MHz CPU**, **80 MHz QIO flash**, and **`-Os`** compiler optimization. The CPU is already at the ESP32-S3’s rated maximum; `-Os` favors smaller firmware rather than the most aggressive speed optimization. Other boards keep their own flash settings. Request transfers, serialized Bluetooth operations, and storage work can add latency; these require device measurements before attributing a UI delay to CPU speed. Foreground loading indicators show pending content without interrupting quiet background polling.

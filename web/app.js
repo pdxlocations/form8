@@ -1,11 +1,15 @@
+import {createLoadingIndicator} from './loading.js';
 import {openClientDatabase,claimLegacyClientData,legacyClientDataSummary} from './node-store.js';
 import {UnreadTracker,setNavBadge} from './unread.js';
 import {guardAction,trackActionControl} from './actions.js';
 import {createMapPanel} from './map.js';
-import {PositionClient,deviceLocation,locationPayload} from './position-client.js';
-import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, formDeliverySummary, canReplyToForm, canHumanAcknowledge, canResendForm, formReplyDraft, numberUntitledDrafts, draftLabel, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
+import {PositionClient,deviceLocation,locationPayload,validLocation} from './position-client.js';
+import {priorities, utf8, token, validateForm, receiptRows, verifyArchive, deliveryStatus, formDeliverySummary, canReplyToForm, canHumanAcknowledge, canResendForm, formReplyDraft, numberUntitledDrafts, draftLabel, hasDraftContent, chatEmojis, validateChatText, chatRadioStatus, chatReactionGroups} from './model.js';
 const $ = selector => document.querySelector(selector);
-let status = null, offset = 0, total = 0, draftTimer, locationData = null, settingsLoaded = false, boundIncident = '';
+const loading=createLoadingIndicator($('#content-loading'));
+const withLoading=(message,work,scope)=>loading.run(message,work,scope);
+let status = null, offset = 0, total = 0, draftTimer, locationData = null, locationUnavailable = false, settingsLoaded = false, boundIncident = '';
+let draftDefaults={};
 let messageNeighbors = {previous:null,next:null};
 let selectedForm = null, polling = null, settingsDirty = false, displayedRecord = '';
 let openRecord=null, openingForm=null;
@@ -15,6 +19,7 @@ const forgettingNodes=new Set();
 const deletingIncidents=new Set();
 let formSubmitting=false;
 let incidentTransition=null;
+let retainedIncidents={node:'',incidents:[]};
 let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;
 const form = $('#form8');
 let workspaceNode='',workspaceEpoch=0,workspaceSwitching=false;
@@ -94,6 +99,7 @@ function refreshFormFeedback(meta) {
   const e=$('#feedback');
   if(e.dataset.form!==`${status?.node}/${meta.id}`)return;
   e.textContent=`Form ${meta.id.slice(-8)} saved to ${status.companionStorage?'companion':'radio'} · ${formDeliverySummary(meta,status)}.`;
+  if($('#traffic').hidden===false && $('#message-reader').hidden===false)e.hidden=true;
   if(!formSubmitting)formSendStatus(e.textContent);
 }
 function run(fn,key) { return guardAction(fn,{key,onError:error=>{if(error.code!=='NODE_CHANGED')feedback(error.message,true);}}); }
@@ -111,6 +117,7 @@ function updateChatBadge(messages){
   setNavBadge('chat',unreadTracker.chat(status,messages,!document.hidden && !$('#chat').hidden),'unread texts');
 }
 function showTab(tab) {
+  loading.select(tab);
   if($(`#${tab}`).hidden){
     const message=$('#feedback');message.hidden=true;message.textContent='';message.classList.toggle('error',false);
   }
@@ -118,9 +125,17 @@ function showTab(tab) {
   for(const b of document.querySelectorAll('nav button')){const selected=b.dataset.tab===tab;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));}
   updateNavigationBadges();
   if(tab==='map')mapPanel.show();if(tab==='nodes')renderNodes();
-  if(tab==='chat')run(loadChatMessages)();if(tab==='traffic')run(loadTraffic)();if(tab==='incidents')run(loadIncidents)();if(tab==='archive')run(loadArchives)();
+  if(tab==='chat')run(()=>withLoading('Loading chat…',loadChatMessages,tab))();
+  if(tab==='traffic')run(()=>withLoading('Loading messages…',loadTraffic,tab))();
+  if(tab==='incidents')run(()=>withLoading('Loading incidents…',loadIncidents,tab))();
+  if(tab==='archive')run(()=>withLoading('Loading device archives…',loadArchives,tab))();
 }
-for(const b of document.querySelectorAll('nav button'))b.onclick=()=>showTab(b.dataset.tab);
+for(const b of document.querySelectorAll('nav button'))b.onclick=()=>{
+  if(b.dataset.tab==='traffic'){
+    selectedForm=null;openRecord=null;openingForm=null;displayedRecord='';messageNeighbors={previous:null,next:null};setTrafficView();
+  }
+  showTab(b.dataset.tab);
+};
 function values() {
   const d=Object.fromEntries(new FormData(form));d.type='net-form-8';d.priority=Number(d.priority);
   for(const key of ['replySignature','replyDate','replyTime'])if(!d[key])delete d[key];
@@ -129,13 +144,15 @@ function values() {
   if(boundIncident)d.boundIncident=boundIncident;
   delete d.lat;delete d.lon;return d;
 }
+function draftValues(){return {...values(),lat:form.elements.lat.value,lon:form.elements.lon.value};}
 async function saveDraft() {
   if(workspaceSwitching)return;
-  const d=values(),epoch=workspaceEpoch,targetDatabase=database,view=workspaceSnapshot();
-  await db('drafts','put',{id:d.clientToken,form:d,savedAt:Date.now()},targetDatabase);
+  const d=draftValues(),defaults={...draftDefaults},epoch=workspaceEpoch,targetDatabase=database,view=workspaceSnapshot(),entered=hasDraftContent(d,defaults);
+  if(entered)await db('drafts','put',{id:d.clientToken,form:d,defaults,savedAt:Date.now()},targetDatabase);
+  else await db('drafts','delete',d.clientToken,targetDatabase);
   await db('settings','put',view,targetDatabase);
   if(epoch!==workspaceEpoch)return;
-  $('#draft-state').textContent='Saved on this device';await draftList();
+  $('#draft-state').textContent=entered?'Saved on this device':'New draft · not saved yet';await draftList();
 }
 async function draftList() {
   const epoch=workspaceEpoch,drafts=await db('drafts','getAll');if(epoch!==workspaceEpoch)return;
@@ -144,7 +161,7 @@ async function draftList() {
     const subject=draftLabel(draft),item=text('div','','draft-item');
     const remove=button('Delete',()=>deleteDraft(draft.id,subject),'draft-delete',`draft-delete:${draft.id}`);
     remove.setAttribute('aria-label',`Delete draft: ${subject}`);
-    item.append(button(subject,async()=>{await saveDraft();if(epoch!==workspaceEpoch)return;fill(draft.form);await persistWorkspaceView();},'secondary','draft-editor'),remove);list.append(item);
+    item.append(button(subject,async()=>{await saveDraft();if(epoch!==workspaceEpoch)return;fill(draft.form,draft.defaults);await persistWorkspaceView();},'secondary','draft-editor'),remove);list.append(item);
   }
 }
 async function deleteDraft(id,subject) {
@@ -156,21 +173,24 @@ async function deleteDraft(id,subject) {
   if(form.elements.clientToken.value===id){fill();await persistWorkspaceView();}
   await draftList();feedback('Draft deleted from this device.');
 }
-function fill(d={}) {
-  form.reset();locationData=d.location||null;boundIncident=d.boundIncident||'';
+function fill(d={},defaults) {
+  form.reset();locationUnavailable=false;locationData=d.location||null;boundIncident=d.boundIncident||'';
   $('#compose-approval').open=false;
   for(const [name,value] of Object.entries(d))if(form.elements.namedItem(name) && value!=null && typeof value!=='object')form.elements.namedItem(name).value=value;
   form.elements.clientToken.value=d.clientToken||token();form.elements.addressMode.value=d.recipient && d.recipient!=='*'?'callsign':'broadcast';
   form.elements.recipient.disabled=form.elements.addressMode.value==='broadcast';
   if(d.location){form.elements.lat.value=d.location.lat;form.elements.lon.value=d.location.lon;}
   if(!d.date){const now=new Date();form.elements.date.value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;form.elements.time.value=now.toTimeString().slice(0,5);}
-  counts();$('#draft-state').textContent=d.clientToken?'Saved on this device':'New draft · not saved yet';
+  draftDefaults=defaults||{date:form.elements.date.value,time:form.elements.time.value};
+  counts();$('#draft-state').textContent=hasDraftContent(draftValues(),draftDefaults)?'Saved on this device':'New draft · not saved yet';
 }
 function counts() {
   $('#body-count').textContent=`${utf8(form.elements.message.value).length} / 2800 bytes`;
   $('#parent-note').textContent=form.elements.parent.value?`Linked to ${form.elements.parent.value.slice(-8)}`:'';
   $('#compose-reply-note').textContent=form.elements.parent.value?`This response is linked to message ${form.elements.parent.value.slice(-8)}. Write the response in Message above.`:'Use Reply on a received message to send a linked response.';
-  $('#location-info').textContent=locationData?`${locationData.source} · captured ${locationData.capturedAt} · fix age ${Math.round((locationData.fixAgeMs||0)/1000)}s at capture`:'Manual coordinates will be attached if both fields are filled.';
+  const manual=form.elements.lat.value!=='' && form.elements.lon.value!=='' && validLocation({lat:Number(form.elements.lat.value),lon:Number(form.elements.lon.value)});
+  $('#location-info').textContent=locationUnavailable?(manual?'Not available from GPS · Manually entered coordinates will be attached.':'Not available · No GPS fix from the node or phone. Enter coordinates manually or try again.'):locationData?`${locationData.source} · captured ${locationData.capturedAt} · fix age ${Math.round((locationData.fixAgeMs||0)/1000)}s at capture`:'Manual coordinates will be attached if both fields are filled.';
+  for(const name of ['lat','lon'])form.elements[name].placeholder=locationUnavailable?'Not available':'';
 }
 form.oninput=()=>{counts();$('#draft-state').textContent='Saving…';clearTimeout(draftTimer);draftTimer=setTimeout(()=>run(saveDraft)(),400);};
 form.elements.addressMode.onchange=()=>{form.elements.recipient.disabled=form.elements.addressMode.value==='broadcast';};
@@ -178,7 +198,7 @@ for(const name of ['lat','lon'])form.elements[name].addEventListener('input',()=
 $('#new-draft').onclick=run(async()=>{const epoch=workspaceEpoch;clearTimeout(draftTimer);await saveDraft();if(epoch!==workspaceEpoch)return;fill();await saveDraft();},'draft-editor');
 function formSendStatus(message,busy=false,error=false) {
   for(const selector of ['#form-send-status','#traffic-send-status']){
-    const e=$(selector);e.hidden=!message;e.textContent=message;e.classList.toggle('error',error);
+    const e=$(selector);e.hidden=!message || (selector==='#traffic-send-status' && $('#traffic').hidden===false && $('#message-reader').hidden===false);e.textContent=message;e.classList.toggle('error',error);
     e.classList.toggle('sending',busy);
   }
   const send=$('#form-send');send.disabled=busy||formSubmitting;send.textContent=busy?'Sending…':formSubmitting?'Saved to radio':'Send to radio queue';
@@ -220,25 +240,35 @@ form.onsubmit=run(async event=>{
 $('#phone-location').onclick=run(async()=>{
   const button=$('#phone-location'),label=button.textContent,epoch=workspaceEpoch;
   button.disabled=true;button.textContent='Getting location…';
+  let fixAvailable=false;
+  $('#location-info').textContent='Getting current location…';
   try {
     let fix=status?.location;
-    if(!fix?.fresh){
+    if(!fix?.fresh || !validLocation(fix)){
       const position=await deviceLocation();if(epoch!==workspaceEpoch)return;const payload=locationPayload(position);
-      fix={...payload,source:'phone',fresh:true};
+      fix={...payload,source:'phone',fresh:true};fixAvailable=true;
       if(status && status.companionConnected!==false)await api('position',payload);
     }
     if(epoch!==workspaceEpoch)return;
+    fixAvailable=true;locationUnavailable=false;
     const captured=Date.now();locationData={source:fix.source,capturedAt:new Date(captured).toISOString(),fixAgeMs:fix.ageMs||0,accuracy:fix.accuracy};
     form.elements.lat.value=fix.lat;form.elements.lon.value=fix.lon;counts();
     await saveDraft();feedback('Latitude and longitude filled from the current GPS fix.');
   } catch(error) {
+    if(epoch!==workspaceEpoch)return;
+    if(fixAvailable){counts();throw error;}
+    locationUnavailable=true;
+    // A failed fresh-fix request must not silently attach an earlier GPS fix.
+    // Explicitly entered manual coordinates remain available.
+    if(locationData && locationData.source!=='manual'){locationData=null;form.elements.lat.value='';form.elements.lon.value='';}
+    counts();await saveDraft();
     const messages={1:'Location permission denied. Allow location access for this app or browser, then try again.',2:'This device could not determine its location. Try again or enter latitude and longitude manually.',3:'Location request timed out. Try again or enter latitude and longitude manually.'};
-    throw new Error(messages[error.code]||error.message||'Unable to get this device’s location.');
+    throw new Error(`Location not available. ${messages[error.code]||error.message||'No current GPS fix.'}`);
   } finally {
     button.disabled=false;button.textContent=label;
   }
 },'device-position');
-$('#clear-location').onclick=run(async()=>{locationData=null;form.elements.lat.value='';form.elements.lon.value='';counts();await saveDraft();});
+$('#clear-location').onclick=run(async()=>{locationUnavailable=false;locationData=null;form.elements.lat.value='';form.elements.lon.value='';counts();await saveDraft();});
 let chatReply=null, chatIncident='', chatSubmission=null, chatRendered='', chatSending=false, chatVersion='', chatMessages=[],chatAllMessages=[],chatHasOlder=false;
 const reactionSubmissions=new Map(),reactionBusy=new Set();
 function chatControls(){
@@ -372,7 +402,7 @@ async function loadOlderChatMessages(){
   chatAllMessages=result.allMessages||chatAllMessages;chatHasOlder=!!result.hasOlder;chatVersion=result.version||chatVersion;
   updateChatBadge(chatAllMessages);chatRendered='';renderChatMessages();
 }
-$('#chat-load-older').onclick=run(loadOlderChatMessages);
+$('#chat-load-older').onclick=run(()=>withLoading('Loading older messages…',loadOlderChatMessages,'chat'));
 $('#chat-form').onsubmit=run(async event=>{
   event.preventDefault();validateChatText($('#chat-text').value);chatControls();
   if($('#chat-send').disabled)throw new Error('Connect, join an incident, and review the chat destination before sending.');
@@ -382,6 +412,7 @@ $('#chat-form').onsubmit=run(async event=>{
   const {signature,...submission}=chatSubmission;chatSending=true;chatControls();
   try {
     await api('chat',submission);$('#chat-text').value='';chatReply=null;chatSubmission=null;chatIncident='';
+    chatControls();await persistWorkspaceView();
     feedback(`Chat saved to ${status?.companionStorage?'companion':'radio'}. Delivery receipts will appear in Chat.`);await loadChatMessages();
   }finally {chatSending=false;chatControls();}
 });
@@ -480,7 +511,7 @@ async function persistWorkspaceView(){
 }
 function workspaceSnapshot() {
   const settings=$('#radio-settings');
-  return {id:'workspace-view',form:values(),chatText:$('#chat-text').value,chatIncident,
+  return {id:'workspace-view',form:draftValues(),formDefaults:{...draftDefaults},chatText:$('#chat-text').value,chatIncident,
     settingsDirty,settings:[...settings.elements].filter(field=>field.name).map(field=>({name:field.name,value:field.value,checked:field.checked})),
     allIncidents:$('#all-incidents').checked,showRemoved:$('#show-removed').checked};
 }
@@ -494,7 +525,8 @@ async function switchWorkspace(node) {
     // previous editor has been captured, then clear every radio-specific view.
     ++workspaceEpoch;
     if(previous){
-      await db('drafts','put',{id:snapshot.form.clientToken,form:snapshot.form,savedAt:Date.now()},oldDatabase);
+      if(hasDraftContent(snapshot.form,snapshot.formDefaults))await db('drafts','put',{id:snapshot.form.clientToken,form:snapshot.form,defaults:snapshot.formDefaults,savedAt:Date.now()},oldDatabase);
+      else await db('drafts','delete',snapshot.form.clientToken,oldDatabase);
       await db('settings','put',snapshot,oldDatabase);
     }
     const nextDatabase=await waitForLocalStorage(claimLegacyClientData(node));
@@ -510,7 +542,7 @@ async function switchWorkspace(node) {
     try{localStorage.setItem('form8-client-node',node);}catch{}
     const view=await db('settings','get','workspace-view');
     const drafts=(await db('drafts','getAll')).sort((a,b)=>b.savedAt-a.savedAt);
-    fill(view?.form||drafts[0]?.form);
+    fill(view?.form||drafts[0]?.form,view?.form?view.formDefaults:drafts[0]?.defaults);
     $('#chat-text').value=view?.chatText||'';chatIncident=view?.chatIncident||'';
     $('#all-incidents').checked=!!view?.allIncidents;$('#show-removed').checked=!!view?.showRemoved;
     $('#hide-offline-nodes').checked=(await db('settings','get','nodes-hide-offline'))?.value===true;
@@ -620,15 +652,21 @@ async function loadTraffic() {
   for(const m of result.forms){
     const row=text('div','','traffic-item'),description=text('div','');
     const heading=text('div','','traffic-subject');
-    heading.append(text('span',priorities[m.priority],'badge'+(m.priority===3?' urgent':'')),button(m.subject||'(No subject)',()=>openForm(m.id),'traffic-open',`open-form:${status?.node}/${m.id}`));
+    heading.append(text('span',priorities[m.priority],'badge'+(m.priority===3?' urgent':'')),button(m.subject||'(No subject)',()=>openForm(m.id,m),'traffic-open',`open-form:${status?.node}/${m.id}`));
     if(m.unread)heading.append(text('span','Unread','badge'));
     description.append(heading,text('p',`From: ${m.from||'—'} · To: ${m.to||'—'}`,'traffic-addresses'),text('p',`${m.sender} → ${m.recipient==='*'?'Broadcast':m.recipient} · ${m.state}`));
-    const delivery=deliveryStatus(m,status?.peers||[],status?.node);
+    const incoming=!!m.origin && m.origin!==status?.node;
+    const receiptPeers=incoming?[...(status?.peers||[]),{id:status?.node,callsign:status?.callsign,online:true}]:status?.peers||[];
+    // For received forms, this node's durable receipt is real ACK evidence.
+    // Outgoing forms still need a receipt from another node.
+    const delivery=deliveryStatus(m,receiptPeers,status?.node,incoming);
     const radioAck=delivery.complete||delivery.radio?.length>0;
     const recipientPending=radioAck&&!delivery.complete&&m.recipient&&m.recipient!=='*';
-    const receipt=text('span',status?.simulated?'Simulation':radioAck?`Radio ACK${recipientPending?' · recipient pending':''}`:'Pending ACK','traffic-receipt'+(!status?.simulated&&radioAck?' acked':''));
-    receipt.title=status?.simulated?'Saved in simulator · no radio transmission':delivery.label+(recipientPending?` · Awaiting recipient ACK: ${m.recipient}`:'');
-    const actions=text('div','','traffic-actions');actions.append(button('Open',()=>openForm(m.id),'secondary',`open-form:${status?.node}/${m.id}`));
+    const human=delivery.human||[];
+    const ackLabel=human.length?`Human ACK: ${human.join(', ')}`:radioAck?'Radio ACK':'Pending ACK';
+    const receipt=text('span',status?.simulated?'Simulation':ackLabel+(recipientPending?' · recipient pending':''),'traffic-receipt'+(!status?.simulated&&radioAck?' acked':'')+(!status?.simulated&&human.length?' human-acked':''));
+    receipt.title=status?.simulated?'Saved in simulator · no radio transmission':delivery.label+(human.length?` · Human ACK: ${human.join(', ')}`:'')+(recipientPending?` · Awaiting recipient ACK: ${m.recipient}`:'');
+    const actions=text('div','','traffic-actions');actions.append(button('Open',()=>openForm(m.id,m),'secondary',`open-form:${status?.node}/${m.id}`));
     if(m.state==='stored')actions.append(messageCleanupButton('Archive',m,archiveMessage),messageCleanupButton('Remove…',m,removeMessage,'danger'));
     row.append(description,receipt,actions);list.append(row);
   }
@@ -636,13 +674,16 @@ async function loadTraffic() {
   $('#page-label').textContent=`${total?offset+1:0}–${Math.min(offset+20,total)} of ${total}`;
   $('#previous-page').disabled=offset===0;$('#next-page').disabled=offset+20>=total;
 }
-async function openForm(id) {
+async function openForm(id,meta) {
   const node=status?.node,request={id,node};
   selectedForm=id;openRecord=null;openingForm=request;displayedRecord='';messageNeighbors={previous:null,next:null};
-  setTrafficView();$('#form-detail').replaceChildren(text('p','Opening message…','muted'));$('#form-detail').hidden=false;
+  $('#message-subject').textContent=meta?.subject||'Loading…';$('#message-id').textContent=`Message ID ${id}`;
+  setTrafficView();$('#form-detail').replaceChildren(text('p','Loading message…','loading-message'));$('#form-detail').hidden=false;
+  $('#form-detail').setAttribute('aria-busy','true');$('#message-reader').scrollIntoView?.({block:'start'});
   try{
     const record=await api(`form?id=${id}`);
     if(selectedForm!==id || status?.node!==node || openingForm!==request)return;
+    $('#form-detail').setAttribute('aria-busy','false');
     renderForm(record); // Show the form before waiting for its durable read marker.
     try{await api('read',{id});}catch(error){throw new Error(`Message opened, but its read status could not be saved: ${error.message}`);}
     if(selectedForm!==id || status?.node!==node)return;
@@ -651,7 +692,7 @@ async function openForm(id) {
     if(selectedForm!==id || status?.node!==node)return;
     if(!openRecord)$('#form-detail').replaceChildren(text('p','Could not open this message. Use Back and try again.','muted'));
     throw error;
-  }finally{if(openingForm===request)openingForm=null;}
+  }finally{if(openingForm===request){openingForm=null;$('#form-detail').setAttribute('aria-busy','false');}}
 }
 async function replyToForm(record) {
   const epoch=workspaceEpoch;
@@ -680,7 +721,7 @@ function renderForm(record) {
   const approvalOpen=!!displayedRecord && $('#form-detail .paper-approval')?.open;
   displayedRecord=signature;
   const m=record.meta,id=m.id,detail=$('#form-detail');detail.replaceChildren();detail.hidden=false;
-  detail.append(text('h3',m.subject||'General message'),text('p',`ID ${m.id} · ${m.state}`,'muted'));
+  $('#message-subject').textContent=m.subject||'General message';$('#message-id').textContent=`Message ID ${m.id}`;
   if(record.body){
     const d=JSON.parse(record.body);
     const sheet=text('div','','paper-form received-form');
@@ -714,7 +755,7 @@ function renderForm(record) {
         acknowledge.disabled=false;acknowledge.textContent='Acknowledge';throw error;
       }
       await poll();
-    },'secondary',`human-ack:${status?.node}/${id}`);
+    },'acknowledge-button',`human-ack:${status?.node}/${id}`);
     acknowledge.disabled=acknowledged;
     if(canHumanAcknowledge(m,status))actions.append(acknowledge);
     if(m.origin===status?.node){
@@ -780,7 +821,8 @@ function localStoreName(){return status?.companionStorage?'this app':'this node'
 function setTrafficView() {
   const reading=!!selectedForm;
   $('#traffic-overview').hidden=reading;$('#message-reader').hidden=!reading;
-  $('#form-detail').hidden=!reading;$('#traffic-title').textContent=reading?'Message':'Incident traffic';
+  $('#form-detail').hidden=!reading;$('#traffic-list-header').hidden=reading;
+  if(reading){$('#traffic-send-status').hidden=true;if($('#feedback').dataset.form)$('#feedback').hidden=true;}
   renderMessageNavigation();
 }
 function renderMessageNavigation() {
@@ -803,10 +845,10 @@ async function refreshData(tab) {
 }
 for(const refresh of document.querySelectorAll('[data-refresh]'))refresh.onclick=run(async()=>{
   const label=refresh.textContent;refresh.disabled=true;refresh.textContent='Refreshing…';
-  try {await refreshData(refresh.dataset.refresh);}finally{refresh.disabled=false;refresh.textContent=label;}
+  try {await withLoading('Refreshing data…',()=>refreshData(refresh.dataset.refresh),refresh.dataset.refresh);}finally{refresh.disabled=false;refresh.textContent=label;}
 });
-$('#all-incidents').onchange=$('#show-removed').onchange=run(async()=>{offset=0;await persistWorkspaceView();await loadTraffic();});
-$('#previous-page').onclick=run(async()=>{offset=Math.max(0,offset-20);await loadTraffic();});$('#next-page').onclick=run(async()=>{offset+=20;await loadTraffic();});
+$('#all-incidents').onchange=$('#show-removed').onchange=run(async()=>{offset=0;await persistWorkspaceView();await withLoading('Loading messages…',loadTraffic,'traffic');});
+$('#previous-page').onclick=run(async()=>{offset=Math.max(0,offset-20);await withLoading('Loading messages…',loadTraffic,'traffic');});$('#next-page').onclick=run(async()=>{offset+=20;await withLoading('Loading messages…',loadTraffic,'traffic');});
 async function joinIncident(name,id) {
   if(incidentTransition || deletingIncidents.size)return false;
   incidentTransition={kind:id?'join':'create',id};incidentTransitionControls();
@@ -819,7 +861,7 @@ async function loadIncidents() {
   await poll();renderNearbyIncidents();await loadRetainedIncidents();
 }
 async function loadRetainedIncidents() {
-  const result=await api('incidents'),retained=$('#retained');retained.replaceChildren();for(const i of result.incidents)appendIncident(retained,i.name,i.id,true);
+  const result=await api('incidents');retainedIncidents={node:status?.node,incidents:result.incidents};renderNearbyIncidents();
 }
 function incidentTransitionControls(only){
   const working=!!incidentTransition || deletingIncidents.size>0;
@@ -882,9 +924,12 @@ function appendIncident(container,name,id,saved=false) {
   row.append(actions);container.append(row);
 }
 function renderNearbyIncidents() {
-  const nearby=$('#nearby');nearby.replaceChildren();const seen=new Set();
-  for(const peer of status?.peers||[])if(peer.online&&peer.incident!=='0000000000000000'&&!seen.has(peer.incident)){seen.add(peer.incident);appendIncident(nearby,peer.name,peer.incident);}
+  const nearby=$('#nearby'),retained=$('#retained');nearby.replaceChildren();retained.replaceChildren();const seen=new Set();
+  const saved=retainedIncidents.node===status?.node?retainedIncidents.incidents:[],savedIds=new Set(saved.map(i=>i.id));
+  for(const peer of status?.peers||[])if(peer.online&&peer.incident!=='0000000000000000'&&!seen.has(peer.incident)){seen.add(peer.incident);appendIncident(nearby,peer.name,peer.incident,savedIds.has(peer.incident));}
+  for(const incident of saved)if(!seen.has(incident.id))appendIncident(retained,incident.name,incident.id,true);
   if(!seen.size)nearby.append(text('p','No nearby incidents advertised yet.','muted'));
+  if(!retained.children.length)retained.append(text('p','No other saved incidents.','muted'));
 }
 async function loadArchives() {
   const epoch=workspaceEpoch,records=await db('archives','getAll');if(epoch!==workspaceEpoch)return;
@@ -932,4 +977,4 @@ async function start() {
   window.addEventListener('focus',()=>poll());
   if('serviceWorker' in navigator && window.isSecureContext && !globalThis.Form8Native?.isNative())navigator.serviceWorker.register('./sw.js').catch(()=>{});
 }
-run(start)();
+run(()=>withLoading('Connecting to radio…',start))();

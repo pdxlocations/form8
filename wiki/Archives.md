@@ -17,14 +17,14 @@ To review those entries, enable **Show archived and removed entries** in Traffic
 
 ## Leave an incident
 
-In **Incidents → Saved incidents on this node or app**, click **Leave** beside the active incident and confirm. This leaves the active incident and stops its normal stored-message transmissions, while keeping its saved forms and chat. Use **Include previous incidents** in Traffic to read its forms later.
+Open **Incidents** and click **Leave** beside the active incident, then confirm. Its card appears under **Nearby incidents** when another online node advertises it; otherwise, look under **Saved incidents on this node or app**. This leaves the active incident and stops its normal stored-message transmissions, while keeping its saved forms and chat. Use **Include previous incidents** in Traffic to read its forms later.
 
 The nRF radio must be connected to leave its active incident. This control requires firmware with the Leave command and the matching updated app.
 
 ## Remove an old incident and its messages
 
 1. Export or archive any forms you want to keep first. Chat is not included in form archives.
-2. Open **Incidents** and find the incident under **Saved incidents on this node or app**.
+2. Open **Incidents** and find the incident under **Nearby incidents** or **Saved incidents on this node or app**. Saved incidents are shown once: if advertised nearby, their management buttons appear on the Nearby card.
 3. Choose **Delete incident & messages…** and review the confirmation.
 4. Confirm to delete that incident’s local forms, delivery records, and chat. If it is active, Form8 leaves it first.
 

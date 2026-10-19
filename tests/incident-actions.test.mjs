@@ -26,3 +26,17 @@ test('leaving gives immediate feedback and releases the membership lock on failu
  h.reject(Error('Radio unavailable'));await assert.rejects(leaving,/Radio unavailable/);assert.equal(h.states.at(-1),null);
  h.context.api=async()=>({saved:true});assert.equal(await vm.runInContext("joinIncident('Retry','43')",h.context),true);
 });
+
+test('nearby incidents appear once, retain saved controls, and return to Saved when offline',()=>{
+ const containers=Object.fromEntries(['#nearby','#retained'].map(id=>[id,{children:[],replaceChildren(){this.children=[];},append(row){this.children.push(row);}}]));
+ const status={node:'node-a',peers:[{online:true,incident:'practice',name:'Practice'},{online:true,incident:'practice',name:'Practice duplicate'},{online:false,incident:'old',name:'Old'}]};
+ const context=vm.createContext({status,$:id=>containers[id],text:(_tag,value)=>({text:value}),appendIncident:(container,name,id,saved)=>container.append({name,id,saved})});
+ vm.runInContext("let retainedIncidents={node:'node-a',incidents:[{id:'practice',name:'Practice'},{id:'old',name:'Old'}]};"+source.slice(source.indexOf('function renderNearbyIncidents()'),source.indexOf('async function loadArchives()')),context);
+ const render=()=>vm.runInContext('renderNearbyIncidents()',context);render();
+ assert.deepEqual(containers['#nearby'].children,[{name:'Practice',id:'practice',saved:true}]);
+ assert.deepEqual(containers['#retained'].children,[{name:'Old',id:'old',saved:true}]);
+ status.peers.forEach(peer=>peer.online=false);render();
+ assert.deepEqual(containers['#retained'].children.map(i=>i.id),['practice','old']);
+ status.peers[0].online=true;render();assert.deepEqual(containers['#retained'].children.map(i=>i.id),['old']);
+ status.node='node-b';render();assert.equal(containers['#nearby'].children[0].saved,false);assert.equal(containers['#retained'].children[0].text,'No other saved incidents.');
+});

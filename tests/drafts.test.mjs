@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {draftLabel, numberUntitledDrafts} from '../web/model.js';
+import {draftLabel, numberUntitledDrafts, hasDraftContent} from '../web/model.js';
 
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
 function setup(confirmed=true){
@@ -60,4 +60,12 @@ test('legacy and whitespace-only drafts get stable labels without changing subje
   assert.equal(numbered.drafts[0].form.subject,'   ');
   const titled=numberUntitledDrafts(numbered.drafts.map(d=>({...d,form:{subject:'Named'}})),numbered.counter);
   assert.equal(titled.counter,0);assert.ok(titled.drafts.every(d=>!('untitledNumber' in d)));
+});
+
+
+test('generated form defaults do not create drafts, while entered information does',()=>{
+ const defaults={date:'2026-10-18',time:'12:30'},blank={clientToken:'generated',type:'net-form-8',boundIncident:'incident',recipient:'*',priority:0,...defaults};
+ assert.equal(hasDraftContent(blank,defaults),false);
+ assert.equal(hasDraftContent({...blank,subject:'  ',message:'\n'},defaults),false);
+ for(const extra of [{subject:'Water'},{message:'Needed'},{to:'Team'},{from:'Supply'},{approvedBy:'Pat'},{replySignature:'Pat'},{priority:1},{recipient:'NET-B'},{date:'2026-10-19'},{time:'13:30'},{lat:'0'},{lon:'-122.6'},{location:{lat:0,lon:0}},{parent:'linked-form'}])assert.equal(hasDraftContent({...blank,...extra},defaults),true,JSON.stringify(extra));
 });

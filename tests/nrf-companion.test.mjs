@@ -199,3 +199,23 @@ test('delete incident removes original forms, linked forms, offloaded metadata, 
  assert.deepEqual(h.saved.records,[keep]);assert.deepEqual(h.saved.incidents,[{id:other,name:'Keep'}]);assert(h.saved.chatRevision>revision);
  for(const id of [ID,reply,correction,chat,chatReply,reaction])assert(!h.api.inflight.has(id));
 });
+
+test('resend adds newly heard incident nodes durably before transmission and preserves old ACKs',async()=>{
+ const h=harness();await h.api.connect();await h.api.request('forms',{clientToken:ID,message:'Original',recipient:'*',priority:0});
+ await h.api.change(s=>{s.records[0].meta.receipts.push({id:PEER,callsign:'W7ABC',human:true});});
+ const before=structuredClone(h.saved.records[0]);
+ const NEW='4'.repeat(16),OTHER='5'.repeat(16),OFFLINE='6'.repeat(16);
+ h.status.peers.push({id:NEW,callsign:'NEW-NODE',online:true,incident:INCIDENT},{id:OTHER,callsign:'OTHER',online:true,incident:'f'.repeat(16)},{id:OFFLINE,callsign:'OFFLINE',online:false,incident:INCIDENT});
+ h.calls.length=0;await h.api.request('resend',{id:ID});
+ assert.deepEqual(h.saved.records[0].meta.expected.map(peer=>peer.id),[PEER,NEW]);
+ assert.deepEqual(h.saved.records[0].meta.receipts,before.meta.receipts);assert.equal(h.saved.records[0].body,before.body);
+ assert(h.calls.findIndex(call=>call[0]==='save')<h.calls.findIndex(call=>call[0]==='resend'));
+ await h.api.request('resend',{id:ID});assert.equal(h.saved.records[0].meta.expected.length,2);
+ h.api.connected=false;await h.api.restore(NODE);assert.equal(h.api.state.records[0].meta.expected[1].id,NEW);
+});
+
+test('resend does not transmit when the expanded acknowledgment list cannot be saved',async()=>{
+ const h=harness();await h.api.connect();await h.api.request('forms',{clientToken:ID,message:'Original',recipient:'*',priority:0});
+ h.status.peers.push({id:'4'.repeat(16),callsign:'NEW-NODE',online:true,incident:INCIDENT});h.calls.length=0;h.fail();
+ await assert.rejects(h.api.request('resend',{id:ID}),/disk full/);assert(!h.calls.some(call=>call[0]==='resend'));
+});

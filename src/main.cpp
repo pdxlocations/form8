@@ -11,6 +11,7 @@
 #include <RecordName.h>
 #include <DeliveryRetry.h>
 #include <DeliveryPolicy.h>
+#include <ResendRoster.h>
 #include <TrafficSchedule.h>
 #include <TrafficOrder.h>
 #include <Chat.h>
@@ -504,6 +505,11 @@ void api() {
     if(r.origin!=nodeId){error(409,"Only the originating station can resend a form");return;}
     if(!active || r.incident!=active){error(409,"Join this form's incident before resending");return;}
     if(!radioReady || !txEnabled || paused || !validCall(callsign)){error(409,"Set Radio transmission to On before resending");return;}
+    JsonDocument meta;if(!readJson(path(r.id,".meta"),meta)){error(507,"Cannot read acknowledgment list");return;}
+    bool changed=false;const uint32_t now=millis();
+    for(const auto& peer:peers)if(peer.incident==r.incident && uint32_t(now-peer.last)<PEER_ONLINE_MS)
+      changed=addResendStation(meta,hex64(nodeId),hex64(peer.id),peer.call)||changed;
+    if(changed && !writeJson(path(r.id,".meta"),meta)){error(507,"Cannot save updated acknowledgment list; message was not resent");return;}
     if(!mesh->resend(r,millis())){error(503,"Radio queue full; try resending shortly");return;}
     JsonDocument out;out["id"]=s;out["queued"]=true;respond(200,out);
   });

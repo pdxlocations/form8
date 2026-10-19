@@ -1,4 +1,4 @@
-import {token,crc32,utf8,validateForm,validateChatText,chatEmojis,chatTimelinePage,deliveryStatus,canHumanAcknowledge} from '../web/model.js';
+import {token,crc32,utf8,validateForm,validateChatText,chatEmojis,chatTimelinePage,deliveryStatus,canHumanAcknowledge,resendExpectedStations} from '../web/model.js';
 import {radioStorage} from './radio-connection.js';
 const ZERO='0000000000000000', idPattern=/^[a-f0-9]{32}$/, nodePattern=/^[a-f0-9]{16}$/, callPattern=/^[A-Z0-9/-]{3,16}$/;
 export class RadioStore {
@@ -100,7 +100,14 @@ export class NrfCompanionApi {
    if(r.meta.origin!==this.status.node)throw new Error('Only the originating station can resend a form');
    if(r.meta.incident!==this.status.incident||this.status.incident===ZERO)throw new Error("Join this form's incident before resending");
    if(!this.connected||!this.status.radioReady||!this.status.txEnabled||this.status.paused||!callPattern.test(this.status.callsign))throw new Error('Connect the radio and set Radio transmission to On before resending');
-   let queued;try{queued=await this.publish(r,false,true);}catch(error){if(/Unknown operation/.test(error.message))throw new Error('Update the radio firmware and Android app together to use Resend');throw error;}
+   const current=await this.rpc('status');
+   if(current.node!==this.status.node)throw new Error('Radio identity changed. Reconnect before resending');
+   if(current.incident!==r.meta.incident)throw new Error("Join this form's incident before resending");
+   if(!this.connected||!current.radioReady||!current.txEnabled||current.paused||!callPattern.test(current.callsign))throw new Error('Enable radio transmission before resending');
+   this.status=current;this.statusAt=this.now();
+   const expected=resendExpectedStations(r.meta,current);
+   if(JSON.stringify(expected)!==JSON.stringify(r.meta.expected||[]))await this.change(state=>{state.records.find(record=>record.meta.id===r.meta.id).meta.expected=expected;});
+   let queued;try{queued=await this.publish(this.state.records.find(record=>record.meta.id===r.meta.id),false,true);}catch(error){if(/Unknown operation/.test(error.message))throw new Error('Update the radio firmware and Android app together to use Resend');throw error;}
    if(!queued)throw new Error('Radio queue full; try resending shortly');
    return {id:r.meta.id,queued:true};
   }

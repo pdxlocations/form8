@@ -14,7 +14,7 @@ function harness(){
   let record={meta:{id:'abc',state:'stored',subject:'Hello'},body:JSON.stringify({message:'New message'})};
   const context=vm.createContext({workspaceEpoch:0,workspaceNode:'radio1',persistWorkspaceView:async()=>{},priorities,trackActionControl(){},document:{querySelectorAll(){return [];}},updateNavigationBadges(){},positionClient:{update(){}},canReplyToForm,canHumanAcknowledge,canResendForm,mapPanel:{update(){}},$,api:async path=>{calls.push(path);if(path==='status')return next;if(path.startsWith('form?'))return record;if(path==='incidents')return {incidents:[{id:'42',name:'Test'}]};throw Error(path);},text:(tag,value,className)=>({...element(),tag,value,className}),button:(label,onclick)=>({label,textContent:label,onclick,dataset:{}}),run:fn=>fn,refreshFormFeedback(){},feedback:message=>calls.push(message),renderReceipts:()=>calls.push('receipts'),loadTraffic:async()=>{calls.push('traffic');if(vm.runInContext('selectedForm && openRecord',context))context.renderForm({...record,body:record.meta.state==='stored'?record.body:undefined});},loadChatMessages:async()=>calls.push('chat'),chatControls(){},resetChat(){calls.push('chat-reset');},joinIncident(){}});
   const originalApi=context.api;context.api=async(path,body)=>path==='time'?(calls.push({path,body}),{saved:true}):originalApi(path,body);
-  vm.runInContext("let incidentTransition=null;let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();const identityRequests=new Map();const forgettingNodes=new Set();const deletingIncidents=new Set();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf("window.addEventListener('form8-connection-change'"))+source.slice(source.indexOf('function radioClockKey'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
+  vm.runInContext("let incidentTransition=null;let retainedIncidents={node:'',incidents:[]};let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;const resendingForms=new Set();const identityRequests=new Map();const forgettingNodes=new Set();const deletingIncidents=new Set();let messageNeighbors={previous:null,next:null};let status=null,polling=null,settingsLoaded=false,settingsDirty=false,selectedForm=null,displayedRecord='',openRecord=null,openingForm=null,offset=0;"+source.slice(source.indexOf('function renderNodes()'),source.indexOf('function poll()'))+source.slice(source.indexOf('function poll()'),source.indexOf("window.addEventListener('form8-connection-change'"))+source.slice(source.indexOf('function radioClockKey'),source.indexOf('function renderReceipts'))+source.slice(source.indexOf('function renderForm('),source.indexOf('async function refreshData'))+source.slice(source.indexOf('async function loadRetainedIncidents'),source.indexOf('async function loadArchives')),context);
   context.switchWorkspace=async node=>{context.workspaceNode=node;};
   return {$,calls,context,update:value=>{next={...next,...value};},setRecord:value=>{record=value;},poll:()=>vm.runInContext('poll()',context)};
 }
@@ -209,7 +209,7 @@ test('traffic shows a radio ACK immediately while keeping directed recipient del
  await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Pending ACK');
  meta.receipts.push({id:'relay'});await vm.runInContext('loadTraffic()',h.context);
  assert.equal(receipt().value,'Radio ACK · recipient pending');assert.match(receipt().title,/NET-RELAY.*NET-DEST/);
- meta.receipts.push({id:'dest',human:true});await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Radio ACK');
+ meta.receipts.push({id:'dest',human:true});await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Human ACK: NET-DEST');
  meta.recipient='*';meta.receipts.pop();await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Radio ACK');
 });
 
@@ -369,4 +369,30 @@ test('failed incident deletion restores the control and does not discard the ope
  const h=harness();await h.poll();h.context.confirm=()=>true;vm.runInContext("selectedForm='abc';openRecord={meta:{id:'abc'}};",h.context);
  h.context.api=async()=>{throw Error('Storage unavailable');};await assert.rejects(h.context.removeIncident('Test','42'),/Storage unavailable/);
  assert.equal(h.$('#delete-active-incident').disabled,false);assert.equal(vm.runInContext('selectedForm',h.context),'abc');
+});
+
+
+test('received traffic includes the local radio and human ACK shown in the reader',async()=>{
+ const h=harness();await h.poll();
+ const meta={id:'received',origin:'sender',sender:'NET-SENDER',recipient:'*',subject:'Received',priority:0,state:'stored',receipts:[{id:'radio1',human:false}]};
+ h.context.api=async()=>({forms:[meta],total:1,offset:0});h.context.deliveryStatus=deliveryStatus;
+ vm.runInContext('let total=0;'+source.slice(source.indexOf('async function loadTraffic()'),source.indexOf('function renderForm(')),h.context);
+ const receipt=()=>h.$('#traffic-list').children[0].children[1];
+ await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Radio ACK');assert.match(receipt().title,/TEST2/);
+ meta.recipient='TEST2';meta.receipts[0].human=true;
+ await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Human ACK: TEST2');assert(!receipt().title.includes('Awaiting recipient'));
+ meta.recipient='OTHER';await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Human ACK: TEST2 · recipient pending');
+});
+
+
+test('traffic refresh changes radio ACK to human ACK and adds every acknowledging callsign',async()=>{
+ const h=harness();await h.poll();
+ const meta={id:'human-update',origin:'radio1',sender:'ORIGIN',recipient:'*',subject:'Human update',priority:0,state:'stored',expected:[{id:'b',callsign:'NET-B'},{id:'c',callsign:'NET-C'}],receipts:[{id:'radio1',human:true},{id:'b',human:false}]};
+ h.context.api=async()=>({forms:[meta],total:1,offset:0});h.context.deliveryStatus=deliveryStatus;
+ vm.runInContext('let total=0;'+source.slice(source.indexOf('async function loadTraffic()'),source.indexOf('function renderForm(')),h.context);
+ const receipt=()=>h.$('#traffic-list').children[0].children[1];
+ await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Radio ACK');
+ meta.receipts[1].human=true;await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Human ACK: NET-B');
+ meta.receipts.push({id:'c',human:true});await vm.runInContext('loadTraffic()',h.context);assert.equal(receipt().value,'Human ACK: NET-B, NET-C');
+ assert(!receipt().value.includes('ORIGIN'));assert.match(receipt().className,/human-acked/);assert.match(receipt().title,/Radio ACK.*NET-B.*Human ACK/);
 });

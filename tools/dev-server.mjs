@@ -2,7 +2,7 @@ import http from 'node:http';
 import {readFile,writeFile,mkdir,rename} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {randomBytes} from 'node:crypto';
-import {crc32,validateForm,validateChatText,chatEmojis,chatTimeline} from '../web/model.js';
+import {crc32,validateForm,validateChatText,chatEmojis,chatTimeline,resendExpectedStations} from '../web/model.js';
 const root=fileURLToPath(new URL('../',import.meta.url));
 const port=Number(process.env.PORT||8848);
 const stateFile=process.env.FORM8_DEMO_STATE||`${root}/tmp/demo.local.json`;
@@ -16,7 +16,7 @@ state.config.power??=22;state.config.relayEnabled??=false;state.config.positionE
 let saving=Promise.resolve();
 function save(){const snapshot=JSON.stringify(state);saving=saving.catch(()=>{}).then(async()=>{await writeFile(`${stateFile}.tmp`,snapshot);await rename(`${stateFile}.tmp`,stateFile);});return saving;}
 function reply(res,code,data){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}
-const files=new Set(['index.html','app.js','actions.js','node-store.js','theme.js','position-client.js','map.js','map-model.js','map-store.js','model.js','unread.js','style.css','sw.js','manifest.webmanifest','icon.svg']);
+const files=new Set(['index.html','app.js','actions.js','loading.js','node-store.js','theme.js','position-client.js','map.js','map-model.js','map-store.js','model.js','unread.js','style.css','sw.js','manifest.webmanifest','icon.svg']);
 const mimes={html:'text/html',js:'text/javascript',css:'text/css',svg:'image/svg+xml',webmanifest:'application/manifest+json'};
 http.createServer(async(req,res)=>{
   try{
@@ -95,7 +95,7 @@ http.createServer(async(req,res)=>{
           const body=JSON.stringify(d);state.forms[id]={body,meta:{id,incident:state.incident,origin:'0000000000000001',order:++state.formSequence,hash:crc32(body),priority:d.priority,state:'stored',recipient:d.recipient,subject:d.subject,sender:d.sender,expected:[],receipts:[{id:'0000000000000001',human:false}]}};
         }output={id,saved:true,queued:false};code=201;break;
       }
-      case 'POST /api/resend':{const record=state.forms[d.id];if(!record?.body)throw Error('Stored form body required to resend');if(record.meta.origin!=='0000000000000001')throw Error('Only the originating station can resend a form');if(record.meta.incident!==state.incident)throw Error("Join this form's incident before resending");if(!state.config.txEnabled||state.config.paused)throw Error('Set Radio transmission to On before resending');output={id:d.id,queued:true};break;}
+      case 'POST /api/resend':{const record=state.forms[d.id];if(!record?.body)throw Error('Stored form body required to resend');if(record.meta.origin!=='0000000000000001')throw Error('Only the originating station can resend a form');if(record.meta.incident!==state.incident)throw Error("Join this form's incident before resending");if(!state.config.txEnabled||state.config.paused)throw Error('Set Radio transmission to On before resending');record.meta.expected=resendExpectedStations(record.meta,{node:'0000000000000001',peers:state.peers||[]});output={id:d.id,queued:true};break;}
       case 'POST /api/ack':{
         const record=state.forms[d.id];if(!record?.body)throw Error('Stored form required');if(record.meta.origin==='0000000000000001')throw Error('The originating station cannot human-acknowledge its own form');record.meta.receipts[0].human=true;break;
       }

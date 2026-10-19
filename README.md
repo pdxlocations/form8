@@ -33,7 +33,7 @@ Example screens from the local simulator, using sample messages, callsigns, rece
 
 ### Read and acknowledge a message
 
-![Form8 message reader with bordered form sections, reply and acknowledgment controls, and a color-coded receipt matrix](docs/screenshots/traffic.png)
+![Form8 message reader with subject and Message ID above navigation, bordered form sections, a green Acknowledge button, and a color-coded receipt matrix](docs/screenshots/traffic.png)
 
 ### Incident chat
 
@@ -41,7 +41,7 @@ Example screens from the local simulator, using sample messages, callsigns, rece
 
 ### Incidents
 
-![Form8 Incidents tab with separate incident names and IDs, an Active badge, and equal-width action buttons](docs/screenshots/incidents.png)
+![Form8 Incidents tab with nearby and other saved incidents shown without duplicates, separate names and IDs, and equal-width action buttons](docs/screenshots/incidents.png)
 
 ### Nodes
 

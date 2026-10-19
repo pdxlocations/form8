@@ -1,12 +1,25 @@
 #define ARDUINOJSON_ENABLE_ARDUINO_STRING 1
 #include <ApiGateway.h>
 #include <DeliveryPolicy.h>
+#include <ResendRoster.h>
 #include <TrafficOrder.h>
 #include <algorithm>
 #include <vector>
 #include <cassert>
 #include <iostream>
 int main(){
+ JsonDocument roster;
+ assert(!deserializeJson(roster,R"({"expected":[{"id":"old","callsign":"TARGET"}],"receipts":[{"id":"old","human":true}],"hash":123})"));
+ assert(form8::addResendStation(roster,"self","new","NEW"));
+ assert(!form8::addResendStation(roster,"self","new","NEW"));
+ assert(!form8::addResendStation(roster,"self","self","SELF"));
+ assert(!form8::addResendStation(roster,"self","old","RENAMED"));
+ assert(roster["expected"].size()==2 && String(roster["expected"][0]["callsign"]|"")=="TARGET");
+ assert(roster["receipts"][0]["human"].as<bool>() && roster["hash"]==123);
+ assert(form8::addResendStation(roster,"self","unknown",""));
+ assert(form8::addResendStation(roster,"self","unknown","KNOWN"));
+ assert(roster["expected"].size()==3);
+
  // Traffic order is newest first even with random IDs and unsynchronized clocks.
  std::vector<std::pair<form8::TrafficOrder,int>> traffic;
  for(int i=1;i<=25;++i)traffic.push_back({{static_cast<uint32_t>(i),100-i,0},26-i});

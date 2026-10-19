@@ -99,8 +99,8 @@ export function receiptRows(meta, peers, self, includeSelf=false) {
       online: !!peer?.online, status: origin ? 'Origin' : receipt?.human ? 'Human acknowledged' : receipt ? 'Radio received' : peer?.online ? 'Pending' : 'Pending · offline'};
   });
 }
-export function deliveryStatus(meta, peers, self) {
-  const rows=receiptRows(meta,peers,self).filter(row=>!row.origin);
+export function deliveryStatus(meta, peers, self, includeSelf=false) {
+  const rows=receiptRows(meta,peers,self,includeSelf).filter(row=>!row.origin);
   const radio=rows.filter(r=>r.received).map(r=>r.callsign);
   const human=rows.filter(r=>r.human).map(r=>r.callsign);
   const directed=meta.recipient && meta.recipient!=='*';
@@ -155,4 +155,23 @@ export function formReplyDraft(record,station) {
   return {parent:meta.id,subject:`Re: ${body.subject||meta.subject||''}`.slice(0,160),
     to:body.from||recipient,from:body.recipient==='*'?station.callsign||'':body.to||station.callsign||'',
     recipient,priority:meta.priority??body.priority??0,boundIncident:meta.incident||body.incident||station.incident};
+}
+
+export function resendExpectedStations(meta,station){
+  const expected=new Map((meta.expected||[]).map(peer=>[peer.id,{...peer}]));
+  for(const peer of station.peers||[]){
+    if(!peer.id || peer.id===station.node || !peer.online || peer.incident!==meta.incident)continue;
+    const previous=expected.get(peer.id);
+    if(!previous)expected.set(peer.id,{id:peer.id,callsign:peer.callsign||''});
+    else if(!previous.callsign && peer.callsign)previous.callsign=peer.callsign;
+  }
+  return [...expected.values()];
+}
+
+export function hasDraftContent(form,defaults={}) {
+  const fields=['subject','message','to','from','approvedBy','approvedPosition','signature','replyBy','replyPosition','replySignature','replyDate','replyTime','parent','lat','lon'];
+  if(fields.some(name=>String(form[name]??'').trim()))return true;
+  if(form.location || (form.recipient && form.recipient!=='*' && form.recipient.trim()))return true;
+  if(Number(form.priority||0)!==0)return true;
+  return ['date','time'].some(name=>defaults[name]!==undefined && form[name] && form[name]!==defaults[name]);
 }

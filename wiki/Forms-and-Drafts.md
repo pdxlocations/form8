@@ -1,20 +1,22 @@
 # Read, acknowledge, reply, or correct
 
-Open **Traffic** to see a compact message list with each form’s **From** and **To** fields alongside the routing callsigns. Click the subject or **Open** to show one message at a time. The list shows newest messages first.
+Open **Traffic** to see a compact message list with each form’s **From** and **To** fields alongside the routing callsigns. Click the subject or **Open** to show one message at a time. The list shows newest messages first. The open-message view puts the subject and Message ID at the top, followed by Back and any available Previous/Next buttons. The list heading, Refresh data button, and saved/ACK notices are hidden while reading; the receipt matrix still updates automatically.
 
-In a message, the receipt matrix’s **Human** column identifies every callsign that manually acknowledged it, including your own station and stations now offline. **—** means no human acknowledgment has been recorded for that station. The original sending station is labeled **Origin**, including when viewing your own sent form. Origin is not counted as a remote radio acknowledgment. Radio acknowledgments remain separate. After sending, the saved-message info bar updates automatically from waiting to **Radio Ack: CALLSIGN** and **Human Ack: CALLSIGN** as receipts arrive, including while you browse the traffic list. A new notification or error replaces that bar. From/To fields remain available after offloading new messages; older messages can recover them while their bodies are still stored.
+In a message, the receipt matrix’s **Human** column identifies every callsign that manually acknowledged it, including your own station and stations now offline. **—** means no human acknowledgment has been recorded for that station. The original sending station is labeled **Origin**, including when viewing your own sent form. Origin is not counted as a remote radio acknowledgment. Radio acknowledgments remain separate. After sending, the saved-message info bar updates automatically from waiting to **Radio Ack: CALLSIGN** and **Human Ack: CALLSIGN** as receipts arrive, while you browse the traffic list. It is hidden in the open-message view. A new notification or error replaces that bar. From/To fields remain available after offloading new messages; older messages can recover them while their bodies are still stored.
 
 - **Back to traffic** returns to your list page.
 - **Previous message / Next message** appear when another message is available in that view, including across pages.
-- **Acknowledge** records your station's human acknowledgment.
+- The green **Acknowledge** button records your station's human acknowledgment and changes to **Acknowledged** after success.
 - **Reply** appears on received forms. It opens Compose, focuses **7. Message / 9. Reply**, addresses the reply to the original sender’s callsign, and links it to the original form. Broadcast replies use your callsign in From. Enter your response and send it. Your own forms offer **Correction** instead of Reply. If the local draft cannot be saved, a visible error explains why.
 - **Correction** copies the original into a new draft, prefixes the subject with `Correction:`, and links it to the original. Make your changes and send it.
 
 **Sent forms cannot be edited.** For example, if you sent “Bring 10 chairs” but meant 20, use **Correction**, change the text to “Bring 20 chairs,” and send the new form. The original remains available.
 
-Radio data updates every two seconds while the page is running. Each tab also has **Refresh data**, which keeps your current tab, open message, and unsaved edits.
+Radio data updates every two seconds while the page is running. Each tab also has **Refresh data**, which keeps your current tab and unsaved edits. In Traffic, this button appears in the list; use **Back to traffic** to reach it from an open message.
 
 Drafts and device archives are saved separately for each node; [switching nodes](Connect-to-a-Radio#switching-between-nodes) restores that node’s own workspace.
+
+A draft is saved only after information is entered. Automatic date/time and other defaults alone do not create one. Text, manual coordinates (including a partially entered pair), a chosen precedence, or a manually changed date/time count as content. Clearing the current draft back to blank removes its saved entry.
 
 Saved drafts with no subject are labeled **Untitled draft-1**, **Untitled draft-2**, and so on. Numbers stay with each untitled draft across saves and page reloads. When no untitled drafts remain, numbering starts again at 1. These labels do not fill in the form’s Subject field.
 
@@ -41,7 +43,7 @@ In **Compose**, find the saved draft above the form and click **Delete** beside 
 
 1. In **Compose**, expand **Optional location**.
 2. Click **Use current location** and allow location access if requested.
-3. Check the filled-in **Latitude** and **Longitude** fields before sending.
+3. Check the filled-in **Latitude** and **Longitude** fields before sending. If neither the node nor phone can provide a fresh fix, Optional location shows **Not available**. A failed retry clears an earlier automatic GPS attachment; manually entered coordinates are kept. You can still send the form without a location.
 
 This uses a fresh onboard GPS fix when available, otherwise the phone/laptop location. You can also type both coordinates manually. **Remove location** clears them. Location access may be unavailable in a browser connected directly to the radio's HTTP webpage; use manual coordinates or a configured native companion. The Heltec V3 has no onboard GPS.
 
@@ -63,7 +65,7 @@ The reader uses one color-coded matrix, with **Station**, **Radio**, and **Human
 
 A **repair responder** is any node holding a saved form body that sends it when another node requests a missing copy. It need not be the original sender or a dedicated repeater. Packet relaying controls forwarding; answering requests for a locally stored form remains available even with relaying off.
 
-Traffic shows **Radio ACK** as soon as any remote station confirms a saved copy. For a broadcast, that also stops full-form retries and clears the outgoing count. Individual stations can still show Pending or Pending · offline in the matrix. For a callsign-addressed form, **Radio ACK · recipient pending** means another station has a copy but the addressed recipient has not ACKed; retries and the outgoing count continue until that recipient does. The matrix identifies the receiving callsigns.
+For forms you sent, Traffic shows **Radio ACK** as soon as another station confirms a saved copy. For received forms, your own node’s saved radio receipt also counts in the list, matching the reader’s matrix; it is not incorrectly shown as Pending ACK. For a broadcast, that also stops full-form retries and clears the outgoing count. Individual stations can still show Pending or Pending · offline in the matrix. For a callsign-addressed form, **Radio ACK · recipient pending** means another station has a copy but the addressed recipient has not ACKed; retries and the outgoing count continue until that recipient does. The matrix identifies the receiving callsigns. When manual acknowledgments arrive, the list changes to **Human ACK: CALLSIGN** and adds every acknowledging callsign on automatic refresh. A human ACK from another station still leaves **recipient pending** visible until an addressed destination confirms reception.
 
 Only receiving stations can manually acknowledge a form. The originating node has no Acknowledge button, and the radio/companion APIs reject attempts to acknowledge its own form. This uses the stable node ID, so changing a callsign does not change ownership. Historical originator human ACKs are omitted from the matrix and summary and are not repeated by ACK recovery. Replies and corrections have their own originating nodes.
 
@@ -71,7 +73,7 @@ Only receiving stations can manually acknowledge a form. The originating node ha
 
 Open a form originated by the connected node and click **Resend**. Join that form’s incident and check **Enable radio transmission** in Radio setup first. The original body must still be stored on the node or companion; archived/removed bodies cannot be resent from Traffic. Other nodes’ forms do not have this button, and the APIs enforce ownership by node ID.
 
-Resend queues the original form with the same ID, contents, destination, timestamp and checksum. It does not create a new message or erase radio/human receipts. An already-acknowledged form can be explicitly resent; it keeps its Radio ACK status. A resend coalesces with an already-queued transmission of that form. It respects channel availability and transmission controls, and does not bypass the radio scheduler. A failed/full queue reports an error. If you need to change the message, use Correction instead.
+Resend queues the original form with the same ID, contents, destination, timestamp and checksum. It does not create a new message or erase radio/human receipts. Before queuing, Resend adds newly discovered online nodes in that incident to the saved receipt matrix. Existing tracked stations and ACKs stay in place; new stations appear Pending until their receipts arrive. The nRF companion reads the latest radio status first. If the expanded list cannot be saved, no resend is queued. An already-acknowledged form can be explicitly resent; it keeps its Radio ACK status. A resend coalesces with an already-queued transmission of that form. It respects channel availability and transmission controls, and does not bypass the radio scheduler. A failed/full queue reports an error. If you need to change the message, use Correction instead.
 
 Update firmware and Android app together for Resend. Existing receivers can accept the same wire format without changes.
 
@@ -79,4 +81,4 @@ Update firmware and Android app together for Resend. Existing receivers can acce
 
 Click **Send to radio queue** once. **Sending to radio…** appears immediately, and the send action stays locked until the request finishes. Saving locally is not proof of radio delivery; check Traffic and the receipt matrix afterward. Buttons performing asynchronous work are protected against duplicate submissions and become usable again after completion or failure.
 
-Incident actions similarly show **Joining…**, **Creating…**, or **Leaving…** while working. Other membership controls wait until that change finishes. Saved incident cards put the name and Incident ID on separate lines, with equal-width action buttons.
+Incident actions similarly show **Joining…**, **Creating…**, or **Leaving…** while working. Other membership controls wait until that change finishes. Incident cards put the name and Incident ID on separate lines, with equal-width action buttons. Incidents advertised by online nearby nodes appear only under **Nearby incidents**, even if saved locally. Their saved management controls remain available there. Other saved incidents appear under **Saved incidents on this node or app**; an incident returns there when it is no longer advertised nearby.

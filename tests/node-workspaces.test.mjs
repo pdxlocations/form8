@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
+import {hasDraftContent} from '../web/model.js';
 import {NrfCompanionApi} from '../companion/nrf-api.js';
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
@@ -13,7 +14,7 @@ test('node workspace switch preserves A drafts, archives, chat and edited settin
  const fields=[{name:'callsign',value:'EDIT-A',checked:false}];fields.namedItem=name=>fields.find(f=>f.name===name);$('#radio-settings').elements=fields;
  $('#chat-text').value='A unsent text';$('#all-incidents').checked=true;
  store('A').archives.set('shared-id',{id:'shared-id',body:'A archive'});store('B').archives.set('shared-id',{id:'shared-id',body:'B archive'});
- const context=vm.createContext({$,window:{addEventListener(){}},localStorage:{setItem(){}},clearTimeout(){},
+ const context=vm.createContext({hasDraftContent,draftDefaults:{},draftValues:()=>structuredClone(current),$,window:{addEventListener(){}},localStorage:{setItem(){}},clearTimeout(){},
   waitForLocalStorage:p=>p,claimLegacyClientData:async node=>store(node),
   db:async(name,action,value,target=context.database)=>{const map=(await target)[name];if(action==='get')return structuredClone(map.get(value));if(action==='getAll')return structuredClone([...map.values()]);if(action==='put')map.set(value.id,structuredClone(value));},
   values:()=>structuredClone(current),fill:(value={clientToken:'new',subject:''})=>{current=structuredClone(value);},

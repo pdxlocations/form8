@@ -35,7 +35,7 @@ Allow location permission if prompted. If the browser cannot provide a position,
 
 ## The page shows old information
 
-Click **Refresh data** on your current tab. It keeps your tab and unsaved edits. If the radio is disconnected, reconnect to its hotspot. After installing updated firmware, close old Form8 browser tabs and reopen the webpage if the interface still looks outdated.
+Click **Refresh data** on your current tab. If a form is open, use **Back to traffic** first. Refresh keeps your tab and unsaved edits. If the radio is disconnected, reconnect to its hotspot. After installing updated firmware, close old Form8 browser tabs and reopen the webpage if the interface still looks outdated.
 
 ## Sending stays busy
 

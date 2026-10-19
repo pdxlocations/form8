@@ -5,11 +5,13 @@
 1. Open **Chat** and type a short message, such as `At the staging area 👩🏽‍🚒`.
 2. Keep it within **200 UTF-8 bytes**, using the live counter below the text box. Emoji are supported; for example, `👍` uses four bytes. The limit applies to your text, not its radio metadata.
 3. Click **Send chat**. The message is saved on the ESP32 radio, or in Android storage for nRF52840, and sent when **Enable radio transmission** is checked.
-4. Check the delivery line below the message: **Awaiting radio ACK** changes to **Radio ACK: CALLSIGN…** as other radios confirm that they saved it. An ACK is a radio receipt, not proof that a person read it or that every incident node received it.
+4. Check the delivery status at the lower right of the message card: **Awaiting radio ACK** changes to **Radio ACK: CALLSIGN…** as other radios confirm that they saved it. An ACK is a radio receipt, not proof that a person read it or that every incident node received it.
 5. Click **Reply** below a message to link your answer to it. Click **Cancel reply** to send a new message instead. An older reply target may show only its ID if it has left this radio's history.
 6. Use **React** to choose 👍, 👎, ❤️, ✅, ❓, 🚨, or 👀. Click your highlighted reaction to remove it. Reaction buttons show counts; their tooltips list callsigns and the radio-ACK state of your own reaction.
 
 Chat uses the page’s normal scrolling, with no separate scrolling message window. The message box and emoji buttons appear at the top, followed by messages with the newest first. Each message keeps its reply and reaction controls. The small chat toolbar stays available as you scroll: **Oldest** jumps to the oldest displayed message. Incoming messages appear at the top; reading older messages or typing keeps your position.
+
+After a successful send, the input box and its saved workspace text are cleared, so that message does not reappear after reloading or switching back to the node. A failed send keeps the unsent text.
 
 The page refreshes chat and delivery information automatically; **Refresh data** also updates it without changing tabs or clearing your text. Changing incidents keeps typed text but requires **Use this text in the current incident** before sending it there.
 

@@ -74,7 +74,7 @@ Press **Request ID** on that entry. The button immediately shows **Requesting…
 
 ## Delete an incident and messages
 
-On **Incidents**, the top **Delete active incident & messages…** button deletes the current incident’s stored forms, receipts, and chat from the connected radio/companion. Each saved incident also has **Delete incident & messages…**, so you can clear older incidents without changing the active one. The confirmation explains the scope; deleting the active incident leaves it. Other incidents, client drafts/archives, and remote copies stay. Cancel keeps everything; deletion reports the number of forms and chat events removed. An active nRF incident requires a connected radio so leaving can be saved before deleting the companion’s traffic.
+On **Incidents**, the top **Delete active incident & messages…** button deletes the current incident’s stored forms, receipts, and chat from the connected radio/companion. Each saved incident also has **Delete incident & messages…**, so you can clear older incidents without changing the active one. Saved incidents advertised by online nodes appear only under **Nearby incidents**, keeping their management buttons there; other saved incidents appear under **Saved incidents on this node or app**. The confirmation explains the scope; deleting the active incident leaves it. Other incidents, client drafts/archives, and remote copies stay. Cancel keeps everything; deletion reports the number of forms and chat events removed. An active nRF incident requires a connected radio so leaving can be saved before deleting the companion’s traffic.
 
 ## Backup frequency
 
@@ -82,7 +82,7 @@ On **Incidents**, the top **Delete active incident & messages…** button delete
 
 ## Refresh and action feedback
 
-Each tab has **Refresh data**, and the page also refreshes radio data automatically. A refresh keeps your current tab and unsaved edits. Status notices such as “Data refreshed” clear when you change tabs. Join, leave, send, and other asynchronous actions show progress and block duplicate submissions while working.
+Each tab has **Refresh data**, and the page also refreshes radio data automatically. In Traffic, the button is on the message list and is hidden while reading a message; use **Back to traffic** to reach it. A refresh keeps your current tab and unsaved edits. Large loading messages appear during startup, tab-content requests, manual refreshes, and opening a form. They disappear when the request finishes or fails; background polling stays quiet. Status notices such as “Data refreshed” clear when you change tabs. Join, leave, send, and other asynchronous actions show progress and block duplicate submissions while working.
 
 ## Switching between nodes
 

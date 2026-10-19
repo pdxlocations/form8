@@ -102,3 +102,13 @@ test('origin cannot human-ACK and historical origin ACKs are hidden from matrix 
  assert.equal(canHumanAcknowledge(meta,station),false);assert.equal(canHumanAcknowledge({origin:'other'},station),true);assert.equal(canHumanAcknowledge({},station),false);
  assert.equal(receiptRows(meta,[],'self',true).find(r=>r.origin).human,false);assert.deepEqual(manualAcknowledgments(meta,[],'self','NEW-CALL'),['other']);
 });
+
+
+test('local reception can be included for display without changing outgoing delivery rules',()=>{
+ const received={origin:'sender',sender:'NET-A',recipient:'NET-B',receipts:[{id:'receiver',human:true}]},peers=[{id:'receiver',callsign:'NET-B'}];
+ assert.equal(deliveryStatus(received,peers,'receiver').complete,false);
+ const shown=deliveryStatus(received,peers,'receiver',true);assert.equal(shown.complete,true);assert.deepEqual(shown.radio,['NET-B']);assert.deepEqual(shown.human,['NET-B']);
+ const outgoing={...received,origin:'receiver',sender:'NET-B',recipient:'*'};
+ assert.equal(deliveryStatus(outgoing,peers,'receiver').complete,false);
+ assert.equal(deliveryStatus(outgoing,peers,'receiver',true).complete,false);
+});
