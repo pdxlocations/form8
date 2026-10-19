@@ -1,3 +1,4 @@
+import {openClientDatabase,claimLegacyClientData,legacyClientDataSummary} from './node-store.js';
 import {UnreadTracker,setNavBadge} from './unread.js';
 import {guardAction,trackActionControl} from './actions.js';
 import {createMapPanel} from './map.js';
@@ -16,12 +17,8 @@ let formSubmitting=false;
 let incidentTransition=null;
 let timeSyncTarget='',timeSynced=false,timeSyncRetryAt=0;
 const form = $('#form8');
-const database = new Promise((resolve, reject) => {
-  const req = indexedDB.open('form8-client', 2);
-  req.onupgradeneeded = () => { for (const name of ['drafts','archives','settings'])if(!req.result.objectStoreNames.contains(name))req.result.createObjectStore(name, {keyPath:'id'}); };
-  req.onsuccess = () => {req.result.onversionchange=()=>req.result.close();resolve(req.result);}; req.onerror = () => reject(req.error);
-  req.onblocked = () => reject(new Error('Close other Form8 tabs, then reopen this page to update local draft storage.'));
-});
+let workspaceNode='',workspaceEpoch=0,workspaceSwitching=false;
+let database=openClientDatabase();
 function waitForLocalStorage(operation,abort=()=>{}) {
   return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>{
@@ -31,8 +28,8 @@ function waitForLocalStorage(operation,abort=()=>{}) {
     Promise.resolve(operation).then(value=>{clearTimeout(timer);resolve(value);},error=>{clearTimeout(timer);reject(error);});
   });
 }
-async function db(store, action, value) {
-  const databaseHandle = await waitForLocalStorage(database);
+async function db(store, action, value, targetDatabase=database) {
+  const databaseHandle = await waitForLocalStorage(targetDatabase);
   if(store==='drafts' && ['getAll','put','delete'].includes(action))return draftRecords(databaseHandle,action,value);
   const transaction = databaseHandle.transaction(store, action === 'get' || action === 'getAll' ? 'readonly' : 'readwrite');
   return waitForLocalStorage(new Promise((resolve, reject) => {
@@ -75,16 +72,20 @@ function draftRecords(databaseHandle,action,value) {
   }),()=>transaction.abort());
 }
 async function api(path, body) {
+  if(workspaceSwitching && path!=='status')throw Object.assign(new Error('Switching radio; wait for its data to load.'),{code:'NODE_CHANGED'});
+  const epoch=workspaceEpoch,generation=globalThis.Form8Native?.connectionGeneration?.();
+  const check=()=>{if(epoch!==workspaceEpoch || generation!==globalThis.Form8Native?.connectionGeneration?.())throw Object.assign(new Error('Radio changed; previous request cancelled.'),{code:'NODE_CHANGED'});};
   const method = body === undefined ? 'GET' : 'POST';
   const native = globalThis.Form8Native?.isNative();
   if (native) {
     const response = await Form8Native.request({url:`http://192.168.4.1/api/${path}`,method,headers:{'Content-Type':'application/json'},data:body,connectTimeout:6000,readTimeout:15000});
+    check();
     const result = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
     if (response.status >= 400) throw new Error(result.error || 'Radio request failed');
     return result;
   }
   const response = await fetch(`/api/${path}`, {method, cache:'no-store', headers:body === undefined ? {} : {'Content-Type':'application/json'}, body:body === undefined ? undefined : JSON.stringify(body), signal:AbortSignal.timeout(15000)});
-  const result = await response.json();
+  const result = await response.json();check();
   if (!response.ok) throw new Error(result.error || 'Radio request failed');
   return result;
 }
@@ -95,7 +96,7 @@ function refreshFormFeedback(meta) {
   e.textContent=`Form ${meta.id.slice(-8)} saved to ${status.companionStorage?'companion':'radio'} · ${formDeliverySummary(meta,status)}.`;
   if(!formSubmitting)formSendStatus(e.textContent);
 }
-function run(fn,key) { return guardAction(fn,{key,onError:error=>feedback(error.message,true)}); }
+function run(fn,key) { return guardAction(fn,{key,onError:error=>{if(error.code!=='NODE_CHANGED')feedback(error.message,true);}}); }
 function text(tag, value, className) { const el=document.createElement(tag);el.textContent=value;if(className)el.className=className;return el; }
 function button(label, fn, className='secondary',key) { const b=text('button',label,className);b.type='button';b.onclick=run(fn,key);trackActionControl(b,key);return b; }
 const mapPanel=createMapPanel({onError:message=>feedback(message,true)});
@@ -129,23 +130,30 @@ function values() {
   delete d.lat;delete d.lon;return d;
 }
 async function saveDraft() {
-  const d=values();await db('drafts','put',{id:d.clientToken,form:d,savedAt:Date.now()});
+  if(workspaceSwitching)return;
+  const d=values(),epoch=workspaceEpoch,targetDatabase=database,view=workspaceSnapshot();
+  await db('drafts','put',{id:d.clientToken,form:d,savedAt:Date.now()},targetDatabase);
+  await db('settings','put',view,targetDatabase);
+  if(epoch!==workspaceEpoch)return;
   $('#draft-state').textContent='Saved on this device';await draftList();
 }
 async function draftList() {
+  const epoch=workspaceEpoch,drafts=await db('drafts','getAll');if(epoch!==workspaceEpoch)return;
   const list=$('#draft-list');list.replaceChildren();
-  for(const draft of (await db('drafts','getAll')).sort((a,b)=>b.savedAt-a.savedAt)){
+  for(const draft of drafts.sort((a,b)=>b.savedAt-a.savedAt)){
     const subject=draftLabel(draft),item=text('div','','draft-item');
     const remove=button('Delete',()=>deleteDraft(draft.id,subject),'draft-delete',`draft-delete:${draft.id}`);
     remove.setAttribute('aria-label',`Delete draft: ${subject}`);
-    item.append(button(subject,async()=>{await saveDraft();fill(draft.form);},'secondary','draft-editor'),remove);list.append(item);
+    item.append(button(subject,async()=>{await saveDraft();if(epoch!==workspaceEpoch)return;fill(draft.form);await persistWorkspaceView();},'secondary','draft-editor'),remove);list.append(item);
   }
 }
 async function deleteDraft(id,subject) {
+  const epoch=workspaceEpoch;
   if(!confirm(`Delete draft “${subject}” from this device? This cannot be undone.`))return;
   if(form.elements.clientToken.value===id)clearTimeout(draftTimer);
   await db('drafts','delete',id);
-  if(form.elements.clientToken.value===id)fill();
+  if(epoch!==workspaceEpoch)return;
+  if(form.elements.clientToken.value===id){fill();await persistWorkspaceView();}
   await draftList();feedback('Draft deleted from this device.');
 }
 function fill(d={}) {
@@ -167,7 +175,7 @@ function counts() {
 form.oninput=()=>{counts();$('#draft-state').textContent='Saving…';clearTimeout(draftTimer);draftTimer=setTimeout(()=>run(saveDraft)(),400);};
 form.elements.addressMode.onchange=()=>{form.elements.recipient.disabled=form.elements.addressMode.value==='broadcast';};
 for(const name of ['lat','lon'])form.elements[name].addEventListener('input',()=>{locationData=null;counts();});
-$('#new-draft').onclick=run(async()=>{clearTimeout(draftTimer);await saveDraft();fill();await saveDraft();},'draft-editor');
+$('#new-draft').onclick=run(async()=>{const epoch=workspaceEpoch;clearTimeout(draftTimer);await saveDraft();if(epoch!==workspaceEpoch)return;fill();await saveDraft();},'draft-editor');
 function formSendStatus(message,busy=false,error=false) {
   for(const selector of ['#form-send-status','#traffic-send-status']){
     const e=$(selector);e.hidden=!message;e.textContent=message;e.classList.toggle('error',error);
@@ -182,21 +190,27 @@ form.onsubmit=run(async event=>{
   // Paint feedback before the first storage or radio await, including on Traffic.
   formSendStatus(status?.simulated?'Saving in simulator…':'Sending to radio…',true);
   const target=status?{node:status.node,incident:status.incident,companionStorage:status.companionStorage}:null;
+  const targetDatabase=database;
   let confirmed=false;
   try {
     const snapshot=values();await saveDraft();const d=validateForm(snapshot);
     if(!target || target.incident==='0000000000000000')throw new Error('Connect to a radio and join an incident before submitting. Your draft is saved.');
     // Bind before sending; retries retain the same token after an ambiguous response.
     if(d.boundIncident && d.boundIncident!==target.incident)throw new Error('This draft is bound to another incident. Join that incident before submitting.');
-    d.boundIncident=target.incident;await db('drafts','put',{id:d.clientToken,form:d,savedAt:Date.now()});
+    if(status?.node!==target.node || status?.incident!==target.incident)throw new Error('Radio or incident changed. Your draft is saved; reconnect before sending.');
+    d.boundIncident=target.incident;await db('drafts','put',{id:d.clientToken,form:d,savedAt:Date.now()},targetDatabase);
     boundIncident=d.boundIncident;
     if(status?.node!==target.node || status?.incident!==target.incident)throw new Error('Radio or incident changed. Your draft is saved; reconnect before sending.');
     const result=await api('forms',d);confirmed=true;
+    if(status?.node!==target.node)return;
     const message=status?.simulated?`Form ${result.id.slice(-8)} saved in simulator · no radio transmission.`:`Form ${result.id.slice(-8)} saved to ${target.companionStorage?'companion':'radio'}${status?.paused||!status?.txEnabled?' · radio transmission off':' · awaiting radio ACK'}.`;
     formSendStatus(message);feedback(message);$('#feedback').dataset.form=`${target.node}/${result.id}`;
-    await db('drafts','delete',d.clientToken);fill();await saveDraft();
+    await db('drafts','delete',d.clientToken,targetDatabase);
+    if(status?.node!==target.node)return;
+    fill();await saveDraft();
     if(status?.node===target.node && status?.incident===target.incident){showTab('traffic');await openForm(result.id);await poll();}
   } catch(error) {
+    if(status?.node!==target?.node)throw Object.assign(error,{code:'NODE_CHANGED'});
     formSendStatus(confirmed?'Message saved. Could not finish refreshing; refresh Traffic to view it.':`Send not confirmed. Your draft is kept. ${error.message}`,false,true);
     throw error;
   } finally {
@@ -204,15 +218,16 @@ form.onsubmit=run(async event=>{
   }
 });
 $('#phone-location').onclick=run(async()=>{
-  const button=$('#phone-location'),label=button.textContent;
+  const button=$('#phone-location'),label=button.textContent,epoch=workspaceEpoch;
   button.disabled=true;button.textContent='Getting location…';
   try {
     let fix=status?.location;
     if(!fix?.fresh){
-      const position=await deviceLocation();const payload=locationPayload(position);
+      const position=await deviceLocation();if(epoch!==workspaceEpoch)return;const payload=locationPayload(position);
       fix={...payload,source:'phone',fresh:true};
       if(status && status.companionConnected!==false)await api('position',payload);
     }
+    if(epoch!==workspaceEpoch)return;
     const captured=Date.now();locationData={source:fix.source,capturedAt:new Date(captured).toISOString(),fixAgeMs:fix.ageMs||0,accuracy:fix.accuracy};
     form.elements.lat.value=fix.lat;form.elements.lon.value=fix.lon;counts();
     await saveDraft();feedback('Latitude and longitude filled from the current GPS fix.');
@@ -246,7 +261,7 @@ function resetChat(){
 }
 $('#chat-text').addEventListener('input',()=>{
   if(!chatIncident || !$('#chat-text').value)chatIncident=status?.incident||'';
-  chatSubmission=null;chatControls();
+  chatSubmission=null;chatControls();run(persistWorkspaceView)();
 });
 $('#chat-review').onclick=()=>{chatIncident=status?.incident||'';chatSubmission=null;chatControls();};
 $('#chat-cancel-reply').onclick=()=>{chatReply=null;chatSubmission=null;chatControls();};
@@ -435,6 +450,78 @@ function poll() {
   polling=refreshScreen().finally(()=>{polling=null;});
   return polling;
 }
+window.addEventListener('form8-connection-change',()=>{
+  ++workspaceEpoch;status=null;positionClient.update(null);mapPanel.update(null);
+  for(const selector of ['#traffic-list','#retained','#nearby','#node-list','#form-detail'])$(selector).replaceChildren();
+  $('#chat-list').replaceChildren();chatRendered='';
+  for(const tab of ['traffic','chat','incidents'])setNavBadge(tab,0,'unread');
+  for(const selector of ['#station','#message-status','#queue','#storage','#radio-diagnostics','#board-info'])$(selector).textContent='';
+  $('#active-name').textContent='Loading node…';$('#incident-id').textContent='';
+  $('#feedback').hidden=true;chatControls();
+  $('#connection').textContent='Radio connection changed · loading node data…';
+});
+async function renderLegacyClientData(){
+  const node=workspaceNode,summary=await waitForLocalStorage(legacyClientDataSummary(node));
+  if(workspaceNode!==node)return;
+  $('#legacy-client-data').hidden=!summary;
+  if(summary)$('#legacy-client-summary').textContent=`${summary.drafts} drafts and ${summary.archives} archives from older app versions have no recorded node. They are kept separately until you import them into the correct node's workspace.`;
+}
+$('#import-legacy-client').onclick=run(async()=>{
+  const node=workspaceNode;if(!node || !status)throw Error('Connect to the node that owns the previous data first.');
+  if(!confirm(`Assign previous device drafts and archives to ${status.callsign||node} (${node})? Older versions did not record their node. Only do this on the node they belong to. Radio messages are unchanged.`))return;
+  await waitForLocalStorage(claimLegacyClientData(node,true));
+  if(workspaceNode!==node)return;
+  await draftList();await loadArchives();await renderLegacyClientData();
+  feedback('Previous drafts and archives imported into this node’s workspace. Open a saved draft in Compose to continue it.');
+},'import-legacy-client');
+async function persistWorkspaceView(){
+  if(workspaceSwitching || !workspaceNode)return;
+  await db('settings','put',workspaceSnapshot());
+}
+function workspaceSnapshot() {
+  const settings=$('#radio-settings');
+  return {id:'workspace-view',form:values(),chatText:$('#chat-text').value,chatIncident,
+    settingsDirty,settings:[...settings.elements].filter(field=>field.name).map(field=>({name:field.name,value:field.value,checked:field.checked})),
+    allIncidents:$('#all-incidents').checked,showRemoved:$('#show-removed').checked};
+}
+async function switchWorkspace(node) {
+  clearTimeout(draftTimer);
+  const previous=workspaceNode,oldDatabase=database,snapshot=workspaceSnapshot();
+  workspaceSwitching=true;
+  for(const selector of ['#form8','#radio-settings','#chat-form'])$(selector).inert=true;
+  try{
+    // Invalidate old replies before waiting on IndexedDB. Keep status until the
+    // previous editor has been captured, then clear every radio-specific view.
+    ++workspaceEpoch;
+    if(previous){
+      await db('drafts','put',{id:snapshot.form.clientToken,form:snapshot.form,savedAt:Date.now()},oldDatabase);
+      await db('settings','put',snapshot,oldDatabase);
+    }
+    const nextDatabase=await waitForLocalStorage(claimLegacyClientData(node));
+    status=null;settingsLoaded=false;settingsDirty=false;
+    offset=0;total=0;selectedForm=null;displayedRecord='';openRecord=null;openingForm=null;
+    messageNeighbors={previous:null,next:null};setTrafficView();resetChat();
+    chatIncident='';$('#chat-text').value='';chatControls();
+    for(const selector of ['#traffic-list','#retained','#nearby','#archive-list','#draft-list','#node-list'])$(selector).replaceChildren();
+    $('#feedback').hidden=true;delete $('#feedback').dataset.form;formSendStatus('');
+    $('#all-incidents').checked=false;$('#show-removed').checked=false;
+    positionClient.update(null);mapPanel.update(null);fill();
+    database=Promise.resolve(nextDatabase);workspaceNode=node;
+    try{localStorage.setItem('form8-client-node',node);}catch{}
+    const view=await db('settings','get','workspace-view');
+    const drafts=(await db('drafts','getAll')).sort((a,b)=>b.savedAt-a.savedAt);
+    fill(view?.form||drafts[0]?.form);
+    $('#chat-text').value=view?.chatText||'';chatIncident=view?.chatIncident||'';
+    $('#all-incidents').checked=!!view?.allIncidents;$('#show-removed').checked=!!view?.showRemoved;
+    $('#hide-offline-nodes').checked=(await db('settings','get','nodes-hide-offline'))?.value===true;
+    if(view?.settingsDirty){
+      for(const field of view.settings||[]){const input=$('#radio-settings').elements.namedItem(field.name);if(input){input.value=field.value;input.checked=field.checked;}}
+      settingsDirty=true;settingsLoaded=true;
+    }
+    await draftList();if(!$('#archive').hidden)await loadArchives();
+    await renderLegacyClientData();
+  }finally{workspaceSwitching=false;for(const selector of ['#form8','#radio-settings','#chat-form'])$(selector).inert=false;}
+}
 function radioClockKey(next){return `${next.node||''}:${next.bootSession??''}`;}
 async function syncRadioTime(next,reconnected){
   if(next.companionConnected===false){timeSynced=false;timeSyncTarget='';return;}
@@ -454,14 +541,18 @@ async function syncRadioTime(next,reconnected){
 }
 async function refreshScreen() {
   try {
+    const generation=globalThis.Form8Native?.connectionGeneration?.();
     const next=await api('status');
     const reconnected=!status;
+    if(next.node!==workspaceNode)await switchWorkspace(next.node);
+    if(generation!==globalThis.Form8Native?.connectionGeneration?.())return false;
     if(status && (status.node!==next.node || status.incident!==next.incident)){offset=0;selectedForm=null;displayedRecord='';openRecord=null;openingForm=null;setTrafficView();resetChat();}
     status=next;incidentTransitionControls();updateNavigationBadges();for(const b of document.querySelectorAll('[data-announce]'))b.disabled=!canAnnounce();
     positionClient.update(next.companionConnected===false?null:next);mapPanel.update(next);renderNodes();
     chatControls();
     $('#connection').textContent=next.companionConnected===false?'Radio disconnected · companion data available':next.simulated?'Simulation · no RF':next.paused||!next.txEnabled?'Connected · Radio transmission off':'Connected to radio';
     await syncRadioTime(next,reconnected);
+    if(status!==next)return false;
     $('#active-name').textContent=next.incidentName||'Choose an incident';
     $('#compose-incident').value=next.incidentName||(next.incident==='0000000000000000'?'Choose an incident':next.incident);
     $('#incident-id').textContent=next.incident==='0000000000000000'?'No incident selected':`Incident ID ${next.incident}`;
@@ -515,9 +606,9 @@ function renderReceipts(m) {
   container.append(table);
 }
 async function loadTraffic() {
-  const selected=selectedForm,all=$('#all-incidents').checked;
+  const node=status?.node,epoch=workspaceEpoch,selected=selectedForm,all=$('#all-incidents').checked;
   const result=await api(`forms?offset=${offset}${all?'&all=1':''}${$('#show-removed').checked?'&history=1':''}${selected?`&selected=${selected}`:''}`);
-  if(selected!==selectedForm || all!==$('#all-incidents').checked)return;
+  if(epoch!==workspaceEpoch || status?.node!==node || selected!==selectedForm || all!==$('#all-incidents').checked)return;
   total=result.total;offset=result.offset;
   if(selected && openRecord?.meta.id===selected){
     const meta=result.forms.find(m=>m.id===selected);
@@ -563,10 +654,12 @@ async function openForm(id) {
   }finally{if(openingForm===request)openingForm=null;}
 }
 async function replyToForm(record) {
+  const epoch=workspaceEpoch;
   try {
     const draft=formReplyDraft(record,status);
     clearTimeout(draftTimer);
     await saveDraft();
+    if(epoch!==workspaceEpoch)return;
     fill(draft);
     showTab('compose');
     form.scrollIntoView({block:'start'});
@@ -636,7 +729,7 @@ function renderForm(record) {
       actions.append(resend);
     }
     actions.append(button('Correction',async()=>{
-      await saveDraft();const corrected={...d,clientToken:token(),parent:id,subject:`Correction: ${d.subject||''}`.slice(0,160)};delete corrected.boundIncident;fill(corrected);await saveDraft();showTab('compose');
+      const epoch=workspaceEpoch;await saveDraft();if(epoch!==workspaceEpoch)return;const corrected={...d,clientToken:token(),parent:id,subject:`Correction: ${d.subject||''}`.slice(0,160)};delete corrected.boundIncident;fill(corrected);await saveDraft();showTab('compose');
     },'secondary','draft-editor'));detail.append(actions);
     const storage=text('section','','message-storage');storage.append(text('h4','Archive or remove'),text('p',`Archive keeps a verified copy on this device. Remove takes the message out of Traffic on ${localStoreName()}. Other nodes keep their copies.`,'muted'));
     const cleanup=text('div','','actions');
@@ -661,14 +754,14 @@ async function refreshAfterMessageCleanup(id){
 }
 async function archiveMessage(meta){
   if(messageCleanupPending.has(meta.id))return;
-  messageCleanupPending.add(meta.id);const node=status?.node;
+  messageCleanupPending.add(meta.id);const node=status?.node,targetDatabase=database;
   try{
     if(!confirm(`Archive “${meta.subject||'this message'}” on this device and remove it from Traffic on ${localStoreName()}? Other nodes keep their copies.`))return;
     const record=await api(`form?id=${meta.id}`);
     if(record.meta?.id!==meta.id || typeof record.body!=='string')throw new Error('This message changed or was already removed. Refresh Traffic and try again.');
     verifyArchive(record);
-    await db('archives','put',{...record,id:meta.id,archivedAt:Date.now()});
-    verifyArchive(await db('archives','get',meta.id));
+    await db('archives','put',{...record,id:meta.id,archivedAt:Date.now()},targetDatabase);
+    verifyArchive(await db('archives','get',meta.id,targetDatabase));
     if(status?.node!==node)throw new Error('Connection changed. The archive was kept, but the original message was not removed.');
     await api('offload',{id:meta.id,mode:'archive',hash:record.meta.hash,verified:true});
     await refreshAfterMessageCleanup(meta.id);feedback('Saved in Archive on this device and removed from Traffic.');
@@ -712,7 +805,7 @@ for(const refresh of document.querySelectorAll('[data-refresh]'))refresh.onclick
   const label=refresh.textContent;refresh.disabled=true;refresh.textContent='Refreshing…';
   try {await refreshData(refresh.dataset.refresh);}finally{refresh.disabled=false;refresh.textContent=label;}
 });
-$('#all-incidents').onchange=$('#show-removed').onchange=run(async()=>{offset=0;await loadTraffic();});
+$('#all-incidents').onchange=$('#show-removed').onchange=run(async()=>{offset=0;await persistWorkspaceView();await loadTraffic();});
 $('#previous-page').onclick=run(async()=>{offset=Math.max(0,offset-20);await loadTraffic();});$('#next-page').onclick=run(async()=>{offset+=20;await loadTraffic();});
 async function joinIncident(name,id) {
   if(incidentTransition || deletingIncidents.size)return false;
@@ -794,8 +887,9 @@ function renderNearbyIncidents() {
   if(!seen.size)nearby.append(text('p','No nearby incidents advertised yet.','muted'));
 }
 async function loadArchives() {
+  const epoch=workspaceEpoch,records=await db('archives','getAll');if(epoch!==workspaceEpoch)return;
   const list=$('#archive-list');list.replaceChildren();
-  for(const record of await db('archives','getAll')){
+  for(const record of records){
     const row=text('div','','archive-item');row.append(text('div',`${record.meta.subject||'General message'} · ${record.meta.incident}`),button('Read',()=>{if(row.querySelector('pre.message'))return;const d=JSON.parse(record.body);const pre=text('pre',d.message,'message');row.append(pre);}),button('Export',()=>download([record]),'secondary',`archive-export:${record.id}`),button('Delete archive…',async()=>{
       if(!confirm('Delete this archived copy from this device? The copy on this device will be lost. Other nodes and stored traffic are unchanged.'))return;
       await db('archives','delete',record.id);await loadArchives();feedback('Archived copy deleted from this device.');
@@ -811,12 +905,13 @@ async function download(records) {
 }
 $('#export-all').onclick=run(async()=>download(await db('archives','getAll')));
 $('#import-archive').onchange=run(async event=>{
+  const targetDatabase=database,epoch=workspaceEpoch;
   const file=event.target.files[0];if(!file)return;if(file.size>20*1024*1024)throw new Error('Archive import limit is 20 MB.');
   const archive=JSON.parse(await file.text());if(archive.format!=='form8-archive-v1'||!Array.isArray(archive.records))throw new Error('Unrecognized archive format.');
-  for(const record of archive.records){verifyArchive(record);if(!/^[a-f0-9]{32}$/.test(record.meta.id))throw new Error('Invalid archive ID.');await db('archives','put',{...record,id:record.meta.id});}
-  await loadArchives();feedback('Archive imported and verified.');
+  for(const record of archive.records){verifyArchive(record);if(!/^[a-f0-9]{32}$/.test(record.meta.id))throw new Error('Invalid archive ID.');await db('archives','put',{...record,id:record.meta.id},targetDatabase);}
+  if(epoch===workspaceEpoch){await loadArchives();feedback('Archive imported and verified.');}
 });
-$('#radio-settings').oninput=()=>{settingsDirty=true;};
+$('#radio-settings').oninput=()=>{settingsDirty=true;run(persistWorkspaceView)();};
 $('#radio-settings').onsubmit=run(async event=>{
   event.preventDefault();const f=event.target;const d={callsign:f.elements.callsign.value.trim().toUpperCase()};
   for(const key of ['primary','backup','bandwidth','sf','cr','power'])d[key]=Number(f.elements[key].value);
@@ -828,7 +923,10 @@ $('#radio-settings').onsubmit=run(async event=>{
 });
 async function start() {
   $('#hide-offline-nodes').checked=(await db('settings','get','nodes-hide-offline'))?.value===true;
-  const drafts=(await db('drafts','getAll')).sort((a,b)=>b.savedAt-a.savedAt);fill(drafts[0]?.form);await draftList();await poll();
+  fill();
+  let remembered;try{remembered=localStorage.getItem('form8-client-node');}catch{}
+  if(/^[a-f0-9]{16}$/.test(remembered||''))await switchWorkspace(remembered);
+  await poll();
   setInterval(poll,2000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)poll();});
   window.addEventListener('focus',()=>poll());

@@ -114,3 +114,7 @@ On **Nodes**, enable **Hide offline nodes** to filter them out; this choice is s
 ## How do I delete an incident and all its stored messages?
 
 Open **Incidents** and choose **Delete active incident & messages…**, or **Delete incident & messages…** beside a saved incident. Read and accept the confirmation. This removes all stored forms, receipts, chat messages, replies, and reactions for that incident from the connected radio or nRF companion store. Deleting the active incident also leaves it. Other incidents, your drafts/device archives, and copies on other nodes are kept. The client reports how many forms and chat events were removed. This is local deletion, with no LoRa remote-delete packet.
+
+## Will connecting to a different node mix my messages?
+
+No. The client stores drafts and archives separately by node ID, and nRF traffic already has a separate store per radio. Switching nodes clears the previous node’s displayed traffic, chat, and receipt state, and restores the selected node’s saved workspace. Returning to the original node reloads its data. See [switching between nodes](Connect-to-a-Radio#switching-between-nodes) for older-data import and storage details.

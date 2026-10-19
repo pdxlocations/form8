@@ -7,11 +7,11 @@ Both ESP32 and nRF52840 radios can connect to the Android companion using Blueto
 Update **both the ESP32 firmware and Android APK** to a version containing this feature. An app update alone cannot make an older Wi-Fi-only node advertise Bluetooth.
 
 1. Download `form8-release.zip` and the separate `form8-android-debug.apk` from the same [release](https://github.com/pdxlocations/form8/releases). Extract the ZIP and install the matching ESP32 **app update** from `esp32/`, then install the APK. Existing incident storage is preserved by an app-only firmware update; do not choose a factory image or upload a filesystem image over saved messages.
-2. Turn on the node. It starts its Wi-Fi hotspot and advertises Bluetooth as **`Form8-xxxx`**. The four-character suffix matches its Wi-Fi hotspot name, **`form8-xxxx`**.
-3. In Android Form8, open **Settings → Radio connection**, choose **Bluetooth (ESP32 / nRF52)**, and tap **Find radios**.
+2. Turn on the node. It starts its Wi-Fi hotspot and, while no Wi-Fi clients are connected, advertises Bluetooth as **`Form8-xxxx`**. The four-character suffix matches its Wi-Fi hotspot name, **`form8-xxxx`**.
+3. Disconnect every phone/laptop from this node’s hotspot first. A Wi-Fi association pauses Bluetooth discovery and connections until the last Wi-Fi client disconnects; closing the browser alone does not disconnect Wi-Fi. In Android Form8, open **Settings → Radio connection**, choose **Bluetooth (ESP32 / nRF52)**, and tap **Find radios**.
 4. Allow Nearby devices permission. Android 11 and earlier also need Location permission and Location enabled for BLE discovery.
 5. Select your node and tap **Connect**. Android may open a pairing prompt. Enter the **last six digits of the node's eight-digit Wi-Fi password**, including leading zeros. For example, Wi-Fi password `99001234` gives pairing PIN **`001234`**. Read the password on the node's OLED or send `wifi` through its USB serial console at 115200 baud.
-6. After authenticated pairing succeeds, the ESP32 turns its hotspot **off**. Any phone/laptop connected to that hotspot disconnects. The app then accesses the radio over BLE; it does not need to join the hotspot.
+6. After authenticated pairing succeeds, the ESP32 turns its hotspot **off**. The app then accesses the radio over BLE; it does not need to join the hotspot.
 7. Use the same incident, forms, chat, map, and settings screens. **ESP32 still stores forms, chat, receipt metadata, and radio configuration on the node.** Drafts, archives, and downloaded maps stay on the phone. Switching between Wi-Fi and Bluetooth does not create another radio message store.
 8. Tap **Disconnect** when finished. The node restores the **same Wi-Fi hotspot name and password**. A browser can reconnect to it at `http://192.168.4.1`. The phone may require you to select that hotspot again in Android Wi-Fi settings.
 
@@ -23,7 +23,7 @@ Bluetooth commands require an encrypted, authenticated pairing. Pairing does not
 
 ## Why discovery works while Wi-Fi is available
 
-ESP32 Wi-Fi and Bluetooth share the 2.4 GHz RF hardware. They take turns using it; they do not transmit at the exact same instant. The firmware advertises BLE while the hotspot is available, then uses the handoff above to keep active app traffic on one client transport. Pairing briefly uses coexistence before the hotspot is suspended. Espressif documents this [coexistence mechanism](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/coexist.html), including limitations when hotspot clients and BLE are active together.
+ESP32 Wi-Fi and Bluetooth share the 2.4 GHz RF hardware. They take turns using it; they do not transmit at the exact same instant. The firmware advertises BLE while the hotspot has no connected Wi-Fi clients. As soon as any device joins the hotspot, BLE advertising stops and Bluetooth connections are blocked. Advertising resumes after the last Wi-Fi client disconnects. A pairing attempt that overlaps a Wi-Fi association is disconnected so the hotspot keeps priority. When Bluetooth connects first, the handoff above pauses the hotspot. Pairing briefly uses coexistence before the hotspot is suspended. Espressif documents this [coexistence mechanism](https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/coexist.html), including limitations when hotspot clients and BLE are active together.
 
 This behavior needs physical verification on the supported boards and Android versions. Build checks and automated tests do not establish real RF reliability or successful pairing on a particular phone.
 
@@ -33,7 +33,7 @@ Follow [nRF52 and Android](https://github.com/pdxlocations/form8/wiki/nRF52-and-
 
 ## Troubleshooting
 
-- **No node found:** install Bluetooth-enabled firmware, turn on Bluetooth, allow Nearby devices permission, move closer, and scan again. On older Android, enable Location. A node already connected to another Bluetooth client is not available for a second connection.
+- **No node found:** disconnect all devices from this node’s hotspot, then install Bluetooth-enabled firmware if needed, turn on Bluetooth, allow Nearby devices permission, move closer, and scan again. On older Android, enable Location. A node already connected to another Bluetooth client is not available for a second connection.
 - **Hotspot disappears:** this is expected after successful ESP32 pairing. Disconnect Bluetooth to restore Wi-Fi.
 - **PIN rejected:** use the last six digits of the current Wi-Fi password, including zeros. Forget a stale Android bond if firmware/storage was erased.
 - **`station.peers is not iterable`, then Wi-Fi returns:** install the current Android APK over the existing Form8 app and reconnect. This error comes from the companion-storage path receiving an ESP32 handshake instead of nRF status. The updated app selects the ESP32 radio API before allowing polling, rejects unsupported handshakes clearly, and ignores incomplete old cached status without deleting saved records. You do not need to clear app data.

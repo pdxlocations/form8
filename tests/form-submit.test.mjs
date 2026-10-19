@@ -8,7 +8,7 @@ function harness(){
  const elements=new Map(),calls=[],storage=deferred(),radio=deferred(),cleanup=deferred();
  const $=key=>{if(!elements.has(key))elements.set(key,{dataset:{},classList:{toggle(){}},setAttribute(k,v){this[k]=v;}});return elements.get(key);};
  const form={setAttribute(k,v){this[k]=v;}};
- const context=vm.createContext({$,form,clearTimeout(){},run:fn=>fn,values:()=>({clientToken:'token',message:'Hello'}),saveDraft:()=>{calls.push('draft');return calls.filter(c=>c==='draft').length===1?storage.promise:Promise.resolve();},validateForm:d=>d,db:async(store,op)=>{calls.push(op);if(op==='delete')await cleanup.promise;},api:()=>{calls.push('send');return radio.promise;},fill(){calls.push('fill');},feedback(message){calls.push(message);},showTab:tab=>calls.push(tab),openForm:async()=>{},poll:async()=>{}});
+ const context=vm.createContext({database:Promise.resolve(null),$,form,clearTimeout(){},run:fn=>fn,values:()=>({clientToken:'token',message:'Hello'}),saveDraft:()=>{calls.push('draft');return calls.filter(c=>c==='draft').length===1?storage.promise:Promise.resolve();},validateForm:d=>d,db:async(store,op)=>{calls.push(op);if(op==='delete')await cleanup.promise;},api:()=>{calls.push('send');return radio.promise;},fill(){calls.push('fill');},feedback(message){calls.push(message);},showTab:tab=>calls.push(tab),openForm:async()=>{},poll:async()=>{}});
  vm.runInContext("let formSubmitting=false,draftTimer,boundIncident='',status={node:'node',incident:'incident',txEnabled:true};"+source.slice(source.indexOf('function formSendStatus('),source.indexOf("$('#phone-location').onclick")),context);
  return {$,calls,form,storage,radio,cleanup,context,submit:()=>form.onsubmit({preventDefault(){}})};
 }

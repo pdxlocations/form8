@@ -14,6 +14,8 @@ In a message, the receipt matrix’s **Human** column identifies every callsign 
 
 Radio data updates every two seconds while the page is running. Each tab also has **Refresh data**, which keeps your current tab, open message, and unsaved edits.
 
+Drafts and device archives are saved separately for each node; [switching nodes](Connect-to-a-Radio#switching-between-nodes) restores that node’s own workspace.
+
 Saved drafts with no subject are labeled **Untitled draft-1**, **Untitled draft-2**, and so on. Numbers stay with each untitled draft across saves and page reloads. When no untitled drafts remain, numbering starts again at 1. These labels do not fill in the form’s Subject field.
 
 ## Fill in the form

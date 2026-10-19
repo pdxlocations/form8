@@ -26,11 +26,11 @@ struct NimBLEService {
 };
 struct NimBLEServer {
  NimBLEServerCallbacks* callbacks=nullptr;NimBLEService service;int disconnects=0;
- void setCallbacks(NimBLEServerCallbacks* c,bool){callbacks=c;}
+ void setCallbacks(NimBLEServerCallbacks* c,bool){callbacks=c;} void advertiseOnDisconnect(bool){}
  void updateConnParams(uint16_t,int,int,int,int){} NimBLEService* createService(const char*){return &service;}
  void disconnect(uint16_t){disconnects++;callbacks->onDisconnect(this);}
 };
-struct NimBLEAdvertising {void addServiceUUID(const char*){} void setScanResponse(bool){} void setMinInterval(int){} void setMaxInterval(int){} bool start(){return true;}};
+struct NimBLEAdvertising {bool active=false;int starts=0,stops=0;void addServiceUUID(const char*){} void setScanResponse(bool){} void setMinInterval(int){} void setMaxInterval(int){} bool start(){active=true;++starts;return true;}bool stop(){active=false;++stops;return true;}bool isAdvertising(){return active;}};
 struct NimBLEDevice {
  static inline NimBLEServer server;static inline NimBLEAdvertising advertising;
  static void init(const char*){} static void setMTU(int){} static void setSecurityAuth(bool,bool,bool){} static void setSecurityIOCap(int){} static void setSecurityPasskey(uint32_t){}

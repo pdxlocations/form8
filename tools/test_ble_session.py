@@ -1,4 +1,4 @@
-"""Exercise ESP32 BLE idle timing with deterministic callback interleaving."""
+"""Exercise ESP32 BLE idle timing, callback races, and hotspot ownership."""
 import os
 from pathlib import Path
 import shlex

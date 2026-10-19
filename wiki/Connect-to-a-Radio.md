@@ -7,7 +7,7 @@ The workspace uses eight icon buttons that fit across a phone screen: **pencil =
 1. Power on the radio.
 2. In your phone or laptop's Wi-Fi settings, connect to the network shown on the radio, such as `form8-abcd`.
 3. Enter the eight-digit password shown on that radio's screen. Each radio has its own password.
-4. Stay connected even if your device reports that this Wi-Fi network has no internet.
+4. Stay connected even if your device reports that this Wi-Fi network has no internet. Bluetooth discovery is paused while any device is connected to the hotspot. Disconnect all Wi-Fi clients to make Bluetooth available again; closing the browser alone is not enough.
 5. Open **http://192.168.4.1** in your browser. Use `http`, not `https`.
 6. Open **Radio setup** and enter your callsign, such as `NET-A`.
 7. Check the radio settings, then click **Save settings**.
@@ -83,3 +83,11 @@ On **Incidents**, the top **Delete active incident & messages…** button delete
 ## Refresh and action feedback
 
 Each tab has **Refresh data**, and the page also refreshes radio data automatically. A refresh keeps your current tab and unsaved edits. Status notices such as “Data refreshed” clear when you change tabs. Join, leave, send, and other asynchronous actions show progress and block duplicate submissions while working.
+
+## Switching between nodes
+
+Each node has its own client workspace, identified by its node ID. Connecting to node B puts node A’s drafts, device archives, unsent chat text, and edited settings away and loads B’s data. A new node starts with an empty client workspace. Reconnecting to A restores A’s saved workspace and refreshes its traffic. Messages from A do not become B’s outgoing messages. Late responses from the previous connection are discarded.
+
+This does not remove or offload messages from either radio. ESP32 traffic remains on its radio; nRF traffic remains in that node’s separate Android store. Appearance and downloaded basemap tiles remain shared on the device.
+
+After upgrading from an older app, unassigned device drafts and archives are kept separately. Connect to their original node, then use **Radio setup → Previous device data → Import previous device data…**. Confirm the callsign/node ID before assigning them. Older versions did not record their owner, so the app does not guess or copy them into every node’s workspace. Clearing browser/app data still removes local copies; export archives you need to keep.

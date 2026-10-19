@@ -9,7 +9,7 @@ function setup(confirmed=true){
   const drafts=new Map(['current','other'].map(id=>[id,{id,form:{clientToken:id,subject:id},savedAt:1}]));
   const list={children:[],replaceChildren(){this.children=[];},append(item){this.children.push(item);}};
   const form={elements:{clientToken:{value:'current'}}},cleared=[];
-  const context=vm.createContext({draftLabel,form,$:()=>list,draftTimer:123,confirm:()=>confirmed,clearTimeout:timer=>cleared.push(timer),
+  const context=vm.createContext({workspaceEpoch:0,persistWorkspaceView:async()=>{},draftLabel,form,$:()=>list,draftTimer:123,confirm:()=>confirmed,clearTimeout:timer=>cleared.push(timer),
     db:async(store,action,id)=>action==='getAll'?[...drafts.values()]:drafts.delete(id),
     fill:()=>{form.elements.clientToken.value='fresh';},feedback(){},saveDraft(){throw Error('Deleted draft must not be saved again');},
     text:()=>({children:[],append(...items){this.children.push(...items);}}),

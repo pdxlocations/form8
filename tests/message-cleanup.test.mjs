@@ -7,7 +7,7 @@ const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
 const body=JSON.stringify({message:'Supplies needed'}),meta={id:'a'.repeat(32),subject:'Supplies',state:'stored',hash:crc32(body)},record={meta,body};
 function harness({confirmed=true,failSave=false,corrupt=false,changedNode=false}={}){
  const calls=[],store=new Map();
- const context=vm.createContext({status:{node:'radio1',companionStorage:false},selectedForm:null,offset:0,total:1,
+ const context=vm.createContext({workspaceEpoch:0,database:Promise.resolve(null),status:{node:'radio1',companionStorage:false},selectedForm:null,offset:0,total:1,
   confirm:()=>confirmed,verifyArchive,localStoreName:()=> 'this node',
   api:async(path,data)=>{calls.push({path,data});return structuredClone(record);},
   db:async(storeName,action,value)=>{calls.push({storeName,action});if(failSave)throw new Error('Storage unavailable');if(action==='put')store.set(value.id,value);else{if(changedNode)context.status.node='radio2';return corrupt?{...store.get(value),body:'corrupt'}:store.get(value);}},

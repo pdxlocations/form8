@@ -24,7 +24,7 @@ test('missing optional name fields use callsigns rather than undefined; legacy s
 const source=readFileSync(new URL('../web/app.js',import.meta.url),'utf8');
 function harness(fail=false){
  const calls=[];let draft;
- const context=vm.createContext({status:station,draftTimer:1,formReplyDraft,clearTimeout:()=>calls.push('cancel timer'),saveDraft:async()=>{calls.push('save');if(fail)throw Error('Storage unavailable');},fill:value=>{draft=value;},showTab:tab=>calls.push(tab),form:{scrollIntoView:()=>calls.push('scroll composer'),elements:{message:{focus:()=>calls.push('focus message')}}},feedback:(message,error)=>calls.push({message,error}),$:()=>({scrollIntoView:()=>calls.push('scroll feedback')})});
+ const context=vm.createContext({workspaceEpoch:0,status:station,draftTimer:1,formReplyDraft,clearTimeout:()=>calls.push('cancel timer'),saveDraft:async()=>{calls.push('save');if(fail)throw Error('Storage unavailable');},fill:value=>{draft=value;},showTab:tab=>calls.push(tab),form:{scrollIntoView:()=>calls.push('scroll composer'),elements:{message:{focus:()=>calls.push('focus message')}}},feedback:(message,error)=>calls.push({message,error}),$:()=>({scrollIntoView:()=>calls.push('scroll feedback')})});
  vm.runInContext(source.slice(source.indexOf('async function replyToForm('),source.indexOf('function renderForm(')),context);
  return {calls,get draft(){return draft;},reply:()=>context.replyToForm(record)};
 }
