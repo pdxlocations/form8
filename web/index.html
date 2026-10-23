@@ -43,9 +43,8 @@
 <label class="paper-field paper-third">10. Replied by · name<input name="replyBy" maxlength="160"></label>
 <label class="paper-field paper-third">Position / title<input name="replyPosition" maxlength="160"></label>
 <label class="paper-field paper-third">Signature<input name="replySignature" maxlength="160"></label>
-<div class="paper-field paper-third paper-form-code">ICS 213</div>
-<label class="paper-field paper-third">Reply date<input type="date" name="replyDate"></label>
-<label class="paper-field paper-third">Reply time · local<input type="time" name="replyTime"></label>
+<label class="paper-field paper-half">Reply date<input type="date" name="replyDate"></label>
+<label class="paper-field paper-half">Reply time · local<input type="time" name="replyTime"></label>
 </div>
 <details><summary>Optional location</summary><p class="muted">Use the radio’s GPS fix when available, otherwise the phone or laptop’s location. Coordinates are attached to this form only when you choose.</p><div class="actions"><button type="button" id="phone-location" class="secondary">Use current location</button><button type="button" id="clear-location" class="secondary">Remove location</button></div><div class="grid"><label>Latitude<input name="lat" type="number" min="-90" max="90" step="any"></label><label>Longitude<input name="lon" type="number" min="-180" max="180" step="any"></label></div><p id="location-info" class="muted" role="status" aria-live="polite">No location attached.</p></details>
 <div class="actions footer-actions"><span id="draft-state" class="muted">Saved locally</span><button type="submit" id="form-send">Send to radio queue</button></div>

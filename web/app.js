@@ -741,7 +741,7 @@ function renderForm(record) {
     const reply=field('9. Reply',d.parent?`Reply/correction linked to ${d.parent}`:'Replies are sent as linked messages.');
     if(canReplyToForm(m,status))reply.append(button('Reply',()=>replyToForm(record),'secondary','draft-editor'));
     sheet.append(reply,field('10. Replied by · name',d.replyBy,'paper-third'),field('Position / title',d.replyPosition,'paper-third'),field('Signature',d.replySignature,'paper-third'),
-      field('','ICS 213','paper-third paper-form-code'),field('Reply date',d.replyDate,'paper-third'),field('Reply time · local',d.replyTime,'paper-third'));
+      field('Reply date',d.replyDate,'paper-half'),field('Reply time · local',d.replyTime,'paper-half'));
     if(d.location)sheet.append(field('Location',`${d.location.lat}, ${d.location.lon} · ${d.location.source} · fix age ${d.location.fixAgeMs||0} ms`));
     detail.append(sheet);
     const actions=text('div','','actions');

@@ -99,7 +99,6 @@ nav button{position:relative}
 
 #traffic-list>.traffic-item:first-child{border-top:1px solid var(--border)}
 
-.paper-form-code{display:flex;align-items:center;font-weight:700}
 
 .paper-form>.paper-approval{border-top:0;padding:0;margin:0}.paper-approval>summary{padding:9px 11px}.approval-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border-top:1px solid var(--muted)}.approval-fields>*{grid-column:auto;min-width:0;padding:9px 11px;margin:0}.approval-fields>.received-field{border:0}.approval-fields>:not(:first-child){border-left:1px solid var(--muted)}@media(max-width:640px){.approval-fields{grid-template-columns:minmax(0,1fr)}.approval-fields>:not(:first-child){border-left:0;border-top:1px solid var(--muted)}}
 

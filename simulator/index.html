@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script src="ui/theme.js"></script><title>Form8 · Three-node simulator</title><link rel="icon" href="ui/icon.svg"><link rel="stylesheet" href="simulator.css"></head>
+<body>
+<header><div><h1>Form8 radio simulator</h1><p>Two stations + one repeater · Private to this page · Simulated RF</p></div><div class="simulator-controls"><label for="appearance">Appearance<select id="appearance"><option value="system">System (device default)</option><option value="light">Light</option><option value="dark">Dark</option></select></label><button id="restart">Restart exercise</button></div></header>
+<main class="nodes" aria-label="Three simulated radios"></main>
+<details class="activity" open><summary>Radio activity</summary><ol id="activity" aria-live="polite"></ol></details>
+<script type="module" src="simulator.js"></script>
+</body></html>
